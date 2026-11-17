@@ -34,6 +34,7 @@ export interface Theme {
   modeNormal: string;
   modeInsert: string;
   modeSearch: string;
+  modeVisual: string;
   // Chat list
   unread: string;
   pin: string;
@@ -69,6 +70,7 @@ export const transparent: Theme = {
   modeNormal: "#7aa2f7",
   modeInsert: "#73daca",
   modeSearch: "#bb9af7",
+  modeVisual: "#ff9e64",
   unread: "#73daca",
   pin: "#e0af68",
   senderColors: [

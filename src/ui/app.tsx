@@ -15,7 +15,7 @@ import type { StoreQueries } from "../store/queries.ts";
 import type { WASocket } from "@whiskeysockets/baileys";
 import type { InputMethods, ConfirmOption } from "./types.ts";
 import type { MessageRow } from "../store/queries.ts";
-import { planYank } from "./yank.ts";
+import { planYank, visualSelection } from "./yank.ts";
 import { copyImageFilesToClipboard } from "../utils/clipboard-image.ts";
 
 export function App(props: {
@@ -519,7 +519,11 @@ export function App(props: {
       if (!jid) return;
       const msgs = store.messages[jid];
       if (!msgs || msgs.length === 0) return;
-      const targets = [msgs[store.selectedMessageIndex]].filter((m): m is MessageRow => !!m);
+      const visual = store.mode === "visual";
+      const targets = visual
+        ? visualSelection(msgs, store.visualAnchorId, store.selectedMessageIndex)
+        : [msgs[store.selectedMessageIndex]].filter((m): m is MessageRow => !!m);
+      if (visual) helpers.exitVisual();
 
       const { images, texts } = planYank(targets);
       if (images.length > 0) {
