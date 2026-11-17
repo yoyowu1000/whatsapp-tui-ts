@@ -1,5 +1,6 @@
 import type { MessageRow } from "../store/queries.ts";
 import { HIDDEN_MESSAGE_TYPES, IMAGE_MEDIA_TYPES } from "./image.ts";
+import type { ClipboardPart } from "../utils/clipboard-image.ts";
 
 /**
  * Messages covered by a VISUAL selection, oldest first.
@@ -37,8 +38,9 @@ export interface YankPlan {
 
 /**
  * Split the messages to yank into images and the text of the other
- * messages. Images win: when any is present only the images are copied,
- * as files. An image's caption is not counted as text.
+ * messages. Image captions are not counted as text: images alone are copied
+ * as files, and only a selection that also holds text messages becomes a
+ * mixed document (see buildMixedParts).
  */
 export function planYank(msgs: readonly MessageRow[]): YankPlan {
   const images: MessageRow[] = [];
@@ -48,4 +50,36 @@ export function planYank(msgs: readonly MessageRow[]): YankPlan {
     else if (m.text) texts.push(m.text);
   }
   return { images, texts };
+}
+
+/**
+ * The parts of a mixed text-and-image copy, in chat order. The sender's name
+ * starts each run of messages from one person ("Alice: hi"), as the chat
+ * view groups them. An image is its file path (`pathOf`), or a placeholder
+ * when it could not be fetched; its caption follows it. Messages with no
+ * text and no image (a document, say) are skipped.
+ */
+export function buildMixedParts(
+  msgs: readonly MessageRow[],
+  pathOf: (m: MessageRow) => string | null | undefined,
+  nameOf: (m: MessageRow) => string,
+): ClipboardPart[] {
+  const parts: ClipboardPart[] = [];
+  let lastSender: string | null = null;
+  for (const m of msgs) {
+    const name = nameOf(m);
+    const newSender = name !== lastSender;
+    if (IMAGE_MEDIA_TYPES.has(m.media_type ?? m.type)) {
+      if (newSender) parts.push({ text: `${name}:` });
+      const path = pathOf(m);
+      parts.push(path ? { image: path } : { text: "[image unavailable]" });
+      if (m.text) parts.push({ text: m.text });
+    } else if (m.text) {
+      parts.push({ text: newSender ? `${name}: ${m.text}` : m.text });
+    } else {
+      continue;
+    }
+    lastSender = name;
+  }
+  return parts;
 }

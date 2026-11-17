@@ -10,13 +10,13 @@ import { downloadAndCache, isDownloadable, knownFileExt, mediaCachePath } from "
 import { log } from "../utils/log.ts";
 import { execSync, execFileSync } from "child_process";
 import { writeFileSync, readFileSync, unlinkSync, existsSync, renameSync } from "fs";
-import { resolveMentionDisplay, truncate } from "../utils/text.ts";
+import { resolveMentionDisplay, resolveSenderName, truncate } from "../utils/text.ts";
 import type { StoreQueries } from "../store/queries.ts";
 import type { WASocket } from "@whiskeysockets/baileys";
 import type { InputMethods, ConfirmOption } from "./types.ts";
 import type { MessageRow } from "../store/queries.ts";
-import { planYank, visualSelection } from "./yank.ts";
-import { copyImageFilesToClipboard } from "../utils/clipboard-image.ts";
+import { buildMixedParts, planYank, visualSelection } from "./yank.ts";
+import { copyImageFilesToClipboard, copyMixedToClipboard } from "../utils/clipboard-image.ts";
 
 export function App(props: {
   queries: StoreQueries;
@@ -98,7 +98,7 @@ export function App(props: {
     }
   }
 
-  // Images: each goes on the macOS clipboard as its file plus a PNG
+  // Images only: each goes on the macOS clipboard as its file plus a PNG
   // (OSC 52 carries text only), so Finder, Slack and Mail attach them all.
   async function yankImages(images: MessageRow[]) {
     const byId = await fetchImageFiles(images);
@@ -106,6 +106,22 @@ export function App(props: {
     if (!(await copyOrToast(() => copyImageFilesToClipboard([...byId.values()])))) return;
     const missing = images.length - byId.size;
     helpers.showToast(`Copied ${imageLabel(byId.size)}${missing ? ` (${missing} unavailable)` : ""}`, "info", 2500);
+  }
+
+  // Text and images together: one document in chat order. Rich editors
+  // (Notes, Mail, browser editors) paste text and pictures in place;
+  // terminals get the text with each image as its file path.
+  async function yankMixed(targets: MessageRow[], images: MessageRow[], texts: number) {
+    const byId = await fetchImageFiles(images);
+    const nameOf = (m: MessageRow) =>
+      m.from_me ? "You" : resolveSenderName(props.queries, m.sender_jid || m.chat_jid, m.push_name);
+    const parts = buildMixedParts(targets, (m) => byId.get(m.id), nameOf);
+    if (!(await copyOrToast(() => copyMixedToClipboard(parts)))) return;
+    const missing = images.length - byId.size;
+    helpers.showToast(
+      `Copied ${texts} message${texts === 1 ? "" : "s"} + ${imageLabel(byId.size)}${missing ? ` (${missing} unavailable)` : ""}`,
+      "info", 2500,
+    );
   }
 
   // Encode images for a chat — thumbnails first (instant), downloads in background
@@ -526,7 +542,9 @@ export function App(props: {
       if (visual) helpers.exitVisual();
 
       const { images, texts } = planYank(targets);
-      if (images.length > 0) {
+      if (images.length > 0 && texts.length > 0) {
+        await yankMixed(targets, images, texts.length);
+      } else if (images.length > 0) {
         await yankImages(images);
       } else if (texts.length > 0) {
         const b64 = Buffer.from(texts.join("\n")).toString("base64");
