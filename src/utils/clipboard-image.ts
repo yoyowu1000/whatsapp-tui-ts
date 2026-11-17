@@ -13,7 +13,7 @@
  */
 
 import { execFileSync } from "child_process";
-import { existsSync, statSync, mkdirSync } from "fs";
+import { existsSync, statSync, mkdirSync, unlinkSync } from "fs";
 import { randomBytes } from "crypto";
 
 const TEMP_DIR = "/tmp/wa-tui-clipboard";
@@ -71,4 +71,76 @@ end try`;
   } catch {
     return null;
   }
+}
+
+// ── Writing images to the clipboard ────────────────────────────────
+
+// JXA (JavaScript for Automation) script that writes the clipboard from a
+// JSON spec file (path in argv[0]), so no file name is ever interpolated into
+// the script.
+//   spec.files — one item per image: its file URL (Finder, Slack and Mail
+//                attach every file) and the image as PNG (apps that paste
+//                pixel data, such as Claude Code or Preview, read the first).
+const WRITE_CLIPBOARD_JXA = `ObjC.import("AppKit");
+function pngOf(path) {
+  const image = $.NSImage.alloc.initWithContentsOfFile(path);
+  if (image.isNil()) return null;
+  const rep = $.NSBitmapImageRep.imageRepWithData(image.TIFFRepresentation);
+  if (rep.isNil()) return null;
+  return rep.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $({}));
+}
+function run(argv) {
+  const raw = $.NSString.stringWithContentsOfFileEncodingError(argv[0], $.NSUTF8StringEncoding, null);
+  const spec = JSON.parse(raw.js);
+  const items = [];
+  for (const path of spec.files) {
+    const item = $.NSPasteboardItem.alloc.init;
+    item.setStringForType($.NSURL.fileURLWithPath(path).absoluteString, "public.file-url");
+    const png = pngOf(path);
+    if (png) item.setDataForType(png, "public.png");
+    items.push(item);
+  }
+  const pb = $.NSPasteboard.generalPasteboard;
+  pb.clearContents;
+  return pb.writeObjects($(items)) ? "ok" : "fail";
+}`;
+
+interface ClipboardSpec {
+  files: string[];
+}
+
+async function writeClipboard(spec: ClipboardSpec): Promise<void> {
+  if (process.platform !== "darwin") throw new Error("Image copy needs macOS");
+  if (!ensureTempDir()) throw new Error("Can't create temp dir");
+  const specPath = `${TEMP_DIR}/copy-${Date.now()}-${randomBytes(4).toString("hex")}.json`;
+  await Bun.write(specPath, JSON.stringify(spec));
+  const proc = Bun.spawn(["osascript", "-l", "JavaScript", "-e", WRITE_CLIPBOARD_JXA, "--", specPath], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const timer = setTimeout(() => proc.kill(), 15_000);
+  try {
+    const [out, err, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    if (code !== 0 || out.trim() !== "ok") {
+      throw new Error(err.trim() || `osascript exited ${code}`);
+    }
+  } finally {
+    clearTimeout(timer);
+    try { unlinkSync(specPath); } catch {}
+  }
+}
+
+/**
+ * Put image files on the macOS clipboard, replacing what was there. Throws
+ * when not on macOS or when the pasteboard write fails. OSC 52 (used for
+ * text yank) carries only text, so images need the native pasteboard; this
+ * means image yank does not work over SSH.
+ */
+export async function copyImageFilesToClipboard(paths: readonly string[]): Promise<void> {
+  if (paths.length === 0) throw new Error("No images to copy");
+  await writeClipboard({ files: [...paths] });
 }

@@ -58,7 +58,7 @@ This is a TypeScript rewrite of the original [Rust whatsapp-tui](https://github.
 - `?` keybinding reference overlay
 - `i/Esc` for INSERT/NORMAL modes
 - `gg/G` jump to top/bottom
-- `y` yank message text to clipboard (OSC 52, works through tmux)
+- `y` yank the selected message: text goes through OSC 52 (works through tmux); an image or sticker goes onto the macOS clipboard as the picture itself
 
 **Mute**
 - `m` mutes or unmutes the highlighted chat (chat list) or the open chat (messages): 8 hours, 1 week, or Always
