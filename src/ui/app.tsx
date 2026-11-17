@@ -10,10 +10,13 @@ import { downloadAndCache, isDownloadable, knownFileExt, mediaCachePath } from "
 import { log } from "../utils/log.ts";
 import { execSync, execFileSync } from "child_process";
 import { writeFileSync, readFileSync, unlinkSync, existsSync, renameSync } from "fs";
-import { resolveMentionDisplay, truncate } from "../utils/text.ts";
+import { resolveMentionDisplay, resolveSenderName, truncate } from "../utils/text.ts";
 import type { StoreQueries } from "../store/queries.ts";
 import type { WASocket } from "@whiskeysockets/baileys";
 import type { InputMethods, ConfirmOption } from "./types.ts";
+import type { MessageRow } from "../store/queries.ts";
+import { buildMixedParts, planYank, visualSelection } from "./yank.ts";
+import { copyImageFilesToClipboard, copyMixedToClipboard } from "../utils/clipboard-image.ts";
 
 export function App(props: {
   queries: StoreQueries;
@@ -48,6 +51,78 @@ export function App(props: {
     if (!msgs) return;
     encodeImagesForChat(msgs);
   });
+
+  // Full-size image file for a message: the cached download, or a fresh one
+  // when connected. Null when the media has expired or we're offline.
+  async function resolveImageFile(msg: MessageRow): Promise<string | null> {
+    const row = props.queries.getMessage(msg.id) ?? msg;
+    if (row.media_path && existsSync(row.media_path)) return row.media_path;
+    const cached = mediaCachePath(row.id, row.mimetype, row.file_name);
+    if (existsSync(cached)) return cached;
+    const sock = props.getSock();
+    if (!sock) return null;
+    try {
+      const path = await downloadAndCache(sock, row, props.queries);
+      return path && existsSync(path) ? path : null;
+    } catch {
+      return null;
+    }
+  }
+
+  const imageLabel = (n: number) => (n === 1 ? "image" : `${n} images`);
+
+  // Fetch every image's file, in parallel. Map from message id to path;
+  // images that couldn't be fetched are missing from it.
+  async function fetchImageFiles(images: MessageRow[]): Promise<Map<string, string>> {
+    if (images.length > 1) helpers.showToast(`Fetching ${imageLabel(images.length)}…`, "info", 1500);
+    const paths = await Promise.all(images.map(resolveImageFile));
+    const byId = new Map<string, string>();
+    images.forEach((m, i) => { if (paths[i]) byId.set(m.id, paths[i]!); });
+    return byId;
+  }
+
+  function imageUnavailableToast() {
+    helpers.showToast(
+      props.getSock() ? "Image unavailable — too old or expired" : "Not connected — can't fetch image",
+      "error", 3000,
+    );
+  }
+
+  async function copyOrToast(write: () => Promise<void>): Promise<boolean> {
+    try {
+      await write();
+      return true;
+    } catch (e) {
+      helpers.showToast(`Copy failed: ${(e as Error)?.message ?? "unknown"}`, "error", 4000);
+      return false;
+    }
+  }
+
+  // Images only: each goes on the macOS clipboard as its file plus a PNG
+  // (OSC 52 carries text only), so Finder, Slack and Mail attach them all.
+  async function yankImages(images: MessageRow[]) {
+    const byId = await fetchImageFiles(images);
+    if (byId.size === 0) return imageUnavailableToast();
+    if (!(await copyOrToast(() => copyImageFilesToClipboard([...byId.values()])))) return;
+    const missing = images.length - byId.size;
+    helpers.showToast(`Copied ${imageLabel(byId.size)}${missing ? ` (${missing} unavailable)` : ""}`, "info", 2500);
+  }
+
+  // Text and images together: one document in chat order. Rich editors
+  // (Notes, Mail, browser editors) paste text and pictures in place;
+  // terminals get the text with each image as its file path.
+  async function yankMixed(targets: MessageRow[], images: MessageRow[], texts: number) {
+    const byId = await fetchImageFiles(images);
+    const nameOf = (m: MessageRow) =>
+      m.from_me ? "You" : resolveSenderName(props.queries, m.sender_jid || m.chat_jid, m.push_name);
+    const parts = buildMixedParts(targets, (m) => byId.get(m.id), nameOf);
+    if (!(await copyOrToast(() => copyMixedToClipboard(parts)))) return;
+    const missing = images.length - byId.size;
+    helpers.showToast(
+      `Copied ${texts} message${texts === 1 ? "" : "s"} + ${imageLabel(byId.size)}${missing ? ` (${missing} unavailable)` : ""}`,
+      "info", 2500,
+    );
+  }
 
   // Encode images for a chat — thumbnails first (instant), downloads in background
   async function encodeImagesForChat(msgs: import("../store/queries.ts").MessageRow[]) {
@@ -455,17 +530,26 @@ export function App(props: {
       }
     },
 
-    onYankMessage() {
+    async onYankMessage() {
       const jid = store.selectedChatJid;
       if (!jid) return;
       const msgs = store.messages[jid];
       if (!msgs || msgs.length === 0) return;
-      const msg = msgs[store.selectedMessageIndex];
-      if (msg?.text) {
-        const b64 = Buffer.from(msg.text).toString("base64");
-        const osc = `\x1b]52;c;${b64}\x07`;
-        kittyWrite(osc);
-        helpers.showToast("Copied to clipboard", "info", 2000);
+      const visual = store.mode === "visual";
+      const targets = visual
+        ? visualSelection(msgs, store.visualAnchorId, store.selectedMessageIndex)
+        : [msgs[store.selectedMessageIndex]].filter((m): m is MessageRow => !!m);
+      if (visual) helpers.exitVisual();
+
+      const { images, texts } = planYank(targets);
+      if (images.length > 0 && texts.length > 0) {
+        await yankMixed(targets, images, texts.length);
+      } else if (images.length > 0) {
+        await yankImages(images);
+      } else if (texts.length > 0) {
+        const b64 = Buffer.from(texts.join("\n")).toString("base64");
+        kittyWrite(`\x1b]52;c;${b64}\x07`);
+        helpers.showToast(texts.length > 1 ? `Copied ${texts.length} messages` : "Copied to clipboard", "info", 2000);
       } else {
         helpers.showToast("Nothing to copy", "info", 2000);
       }

@@ -11,6 +11,7 @@ export function StatusBar() {
       case "normal": return theme.modeNormal;
       case "insert": return theme.modeInsert;
       case "search": return theme.modeSearch;
+      case "visual": return theme.modeVisual;
     }
   });
 
@@ -19,6 +20,7 @@ export function StatusBar() {
       case "normal": return " NORMAL ";
       case "insert": return " INSERT ";
       case "search": return " SEARCH ";
+      case "visual": return " VISUAL ";
     }
   });
 
@@ -35,12 +37,13 @@ export function StatusBar() {
   const hints = createMemo(() => {
     if (store.mode === "insert") return "Enter send \u00b7 @ attach \u00b7 Ctrl+G editor \u00b7 Esc normal";
     if (store.mode === "search") return "Enter select \u00b7 Esc cancel";
+    if (store.mode === "visual") return "j/k extend \u00b7 y copy \u00b7 v/Esc cancel";
 
     switch (store.focusZone) {
       case "chat-list":
         return "j/k nav \u00b7 Enter open \u00b7 / search \u00b7 i insert";
       case "messages":
-        return "j/k scroll \u00b7 r reply \u00b7 y yank \u00b7 a attach \u00b7 h back";
+        return "j/k scroll \u00b7 r reply \u00b7 y yank \u00b7 v select \u00b7 a attach \u00b7 h back";
       case "input":
         return "i insert \u00b7 a attach \u00b7 Ctrl+G editor \u00b7 Esc back";
     }

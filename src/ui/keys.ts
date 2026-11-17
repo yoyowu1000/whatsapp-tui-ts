@@ -130,6 +130,40 @@ export function useAppKeyboard(actions: {
       return;
     }
 
+    // VISUAL mode (messages zone): only movement, yank and cancel. Other
+    // single-message actions (reply, delete, react…) are ignored so a stray
+    // key doesn't act on just the cursor message of a bigger selection.
+    if (store.mode === "visual") {
+      if (evt.name === "escape" || (evt.name === "v" && !evt.ctrl && !evt.meta)) {
+        clearKeyBuffer();
+        helpers.exitVisual();
+        return;
+      }
+      if (evt.name === "y" && !evt.ctrl && !evt.meta) {
+        clearKeyBuffer();
+        actions.onYankMessage();
+        return;
+      }
+      if (evt.name === "g" && !evt.ctrl && !evt.meta && !evt.shift) {
+        if (keyBuffer === "g") {
+          clearKeyBuffer();
+          actions.onJumpMessages("first");
+          return;
+        }
+        keyBuffer = "g";
+        keyBufferTimer = setTimeout(clearKeyBuffer, 500);
+        return;
+      }
+      clearKeyBuffer();
+      if (evt.name === "G" || (evt.shift && evt.name === "g")) actions.onJumpMessages("last");
+      else if (evt.name === "j" || evt.name === "down") actions.onScrollMessages(1);
+      else if (evt.name === "k" || evt.name === "up") actions.onScrollMessages(-1);
+      else if (evt.ctrl && evt.name === "d") actions.onScrollMessagesPage(1);
+      else if (evt.ctrl && evt.name === "u") actions.onScrollMessagesPage(-1);
+      else if (evt.name === "q" && !evt.ctrl && !evt.meta) actions.onQuit();
+      return;
+    }
+
     // Command palette. Switch to "search" mode so the global key handler
     // passes keys through to the palette's focused input — without this,
     // the global Down/Up handlers eat the navigation keys (and typing
@@ -329,6 +363,12 @@ export function useAppKeyboard(actions: {
       if (store.focusZone === "messages") {
         actions.onYankMessage();
       }
+      return;
+    }
+
+    // Visual select (`v` in messages zone): range selection for yank
+    if (evt.name === "v" && !evt.ctrl && !evt.meta) {
+      if (store.focusZone === "messages") helpers.startVisual();
       return;
     }
 

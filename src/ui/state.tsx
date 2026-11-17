@@ -46,6 +46,10 @@ export interface AppStoreHelpers {
   showToast(message: string, level?: "error" | "info", durationMs?: number): void;
   clearToast(): void;
   setHelpScrollOffset(offset: number): void;
+  /** Enter VISUAL mode anchored at the message under the cursor. */
+  startVisual(): void;
+  /** Leave VISUAL mode (back to NORMAL) and drop the selection. */
+  exitVisual(): void;
   /** Open the mute / unmute dialog. With no jid it targets the chat under
    *  the cursor (chat list focused) or the open chat (anywhere else). */
   openMuteDialog(jid?: string): void;
@@ -70,6 +74,7 @@ const INITIAL_STORE: AppStore = {
   encodedImages: {},
   toast: null,
   helpScrollOffset: 0,
+  visualAnchorId: null,
 };
 
 export function createAppStore(queries: StoreQueries): [AppStore, SetStoreFunction<AppStore>, AppStoreHelpers] {
@@ -94,7 +99,13 @@ export function createAppStore(queries: StoreQueries): [AppStore, SetStoreFuncti
     setStore("chats", chats);
   }
 
+  function exitVisual() {
+    setStore("visualAnchorId", null);
+    if (store.mode === "visual") setStore("mode", "normal");
+  }
+
   function selectChat(jid: string) {
+    exitVisual();
     setStore("selectedChatJid", jid);
     // Move the chat-list cursor to the picked chat too. Without this,
     // jumping into a chat from the search overlay (or any other jump path)
@@ -152,11 +163,22 @@ export function createAppStore(queries: StoreQueries): [AppStore, SetStoreFuncti
     loadMoreMessages,
 
     setMode(mode) { setStore("mode", mode); },
-    setFocusZone(zone) { setStore("focusZone", zone); },
+    setFocusZone(zone) {
+      if (zone !== "messages") exitVisual();
+      setStore("focusZone", zone);
+    },
     setConnection(state) { setStore("connection", state); },
     setOverlay(overlay) { setStore("overlay", overlay); },
     setReplyTo(messageId) { setStore("replyToMessageId", messageId); },
     setSelectedMessageIndex(index) { setStore("selectedMessageIndex", index); },
+    startVisual() {
+      const jid = store.selectedChatJid;
+      const msg = jid ? store.messages[jid]?.[store.selectedMessageIndex] : undefined;
+      if (!msg) return;
+      setStore("visualAnchorId", msg.id);
+      setStore("mode", "visual");
+    },
+    exitVisual,
     setHighlightedChatJid(jid) { setStore("highlightedChatJid", jid); },
     setEncodedImage(msgId, data) { setStore("encodedImages", msgId, data); },
     clearEncodedImages() { setStore("encodedImages", {}); },

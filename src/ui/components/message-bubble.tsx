@@ -62,6 +62,8 @@ export interface BubbleProps {
   senderName: string;
   quotedText?: string | null;
   isSelected?: boolean;
+  /** Inside the VISUAL selection (the cursor message also has isSelected). */
+  isMarked?: boolean;
 }
 
 export function MessageBubble(props: BubbleProps) {
@@ -75,7 +77,7 @@ export function MessageBubble(props: BubbleProps) {
     return store.encodedImages[props.message.id] ?? null;
   };
   const bubbleBg = () => {
-    if (props.isSelected) return theme.bgMessageSelected;
+    if (props.isSelected || props.isMarked) return theme.bgMessageSelected;
     return isOwn() ? theme.bgBubbleOwn : theme.bgBubbleOther;
   };
 

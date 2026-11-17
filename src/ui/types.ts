@@ -1,7 +1,8 @@
 import type { ChatRow, MessageRow } from "../store/queries.ts";
 import type { MuteOptionValue } from "../utils/mute.ts";
 
-export type AppMode = "normal" | "insert" | "search";
+/** "visual" is a range selection in the messages zone, started with `v`. */
+export type AppMode = "normal" | "insert" | "search" | "visual";
 export type FocusZone = "chat-list" | "messages" | "input";
 export type ConnectionStatus =
   | "connecting"
@@ -107,4 +108,7 @@ export interface AppStore {
   toast: ToastState | null;
   /** Scroll offset (in lines) for the help overlay. Reset to 0 on open. */
   helpScrollOffset: number;
+  /** Id of the message where the VISUAL selection started. The cursor
+   *  (selectedMessageIndex) is the other end. Null outside visual mode. */
+  visualAnchorId: string | null;
 }

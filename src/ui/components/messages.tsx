@@ -5,6 +5,7 @@ import { MessageBubble, type BubbleProps } from "./message-bubble.tsx";
 import { HIDDEN_MESSAGE_TYPES as HIDDEN_TYPES } from "../image.ts";
 import { mediaLabel } from "../../wa/message-types.ts";
 import { resolveMentionDisplay, resolveSenderName } from "../../utils/text.ts";
+import { visualSelection } from "../yank.ts";
 import type { StoreQueries, MessageRow } from "../../store/queries.ts";
 
 interface GroupedMessage {
@@ -51,6 +52,15 @@ export function Messages(props: { queries: StoreQueries; scrollRef?: (el: any) =
   const theme = useTheme();
 
   const isFocused = () => store.focusZone === "messages";
+
+  // Ids inside the VISUAL selection, for the range highlight.
+  const markedIds = createMemo((): Set<string> => {
+    if (store.mode !== "visual") return new Set();
+    const jid = store.selectedChatJid;
+    const raw = jid ? store.messages[jid] : undefined;
+    if (!raw) return new Set();
+    return new Set(visualSelection(raw, store.visualAnchorId, store.selectedMessageIndex).map((m) => m.id));
+  });
 
   const groupedMessages = createMemo((): GroupedMessage[] => {
     const jid = store.selectedChatJid;
@@ -146,6 +156,7 @@ export function Messages(props: { queries: StoreQueries; scrollRef?: (el: any) =
                   showDate={item.showDate}
                   senderName={item.senderName}
                   quotedText={item.quotedText}
+                  isMarked={markedIds().has(item.message.id)}
                   isSelected={isFocused() && (() => {
                     const jid = store.selectedChatJid;
                     if (!jid) return false;
