@@ -5,6 +5,8 @@ import { MessageBubble, type BubbleProps } from "./message-bubble.tsx";
 import { HIDDEN_MESSAGE_TYPES as HIDDEN_TYPES } from "../image.ts";
 import { mediaLabel } from "../../wa/message-types.ts";
 import { resolveMentionDisplay, resolveSenderName } from "../../utils/text.ts";
+import { chooseQuoteText } from "../quote.ts";
+import type { QuoteDisplay } from "../quote.ts";
 import { visualSelection } from "../yank.ts";
 import type { StoreQueries, MessageRow } from "../../store/queries.ts";
 
@@ -13,7 +15,7 @@ interface GroupedMessage {
   showSender: boolean;
   showDate: boolean;
   senderName: string;
-  quotedText: string | null;
+  quote: QuoteDisplay | null;
   /** Display text with @<bare-id> mention tokens resolved to contact names. */
   resolvedText: string | null;
 }
@@ -45,6 +47,42 @@ function isSameDay(ts1: number, ts2: number): boolean {
     d1.getMonth() === d2.getMonth() &&
     d1.getFullYear() === d2.getFullYear()
   );
+}
+
+function quoteMediaType(original: MessageRow | null, quoteType: string | null | undefined): string | null {
+  const candidates = [original?.media_type, original?.type, quoteType];
+  for (const type of candidates) {
+    if (type && mediaLabel(type)) return type;
+  }
+  return null;
+}
+
+/** Resolve the saved Original and the Quote copy without touching the network. */
+function resolveQuote(msg: MessageRow, queries: StoreQueries): QuoteDisplay | null {
+  if (!msg.quoted_id) return null;
+
+  const original = queries.getMessage(msg.quoted_id);
+  const choice = chooseQuoteText(original?.text, msg.quoted_text);
+  const mediaType = quoteMediaType(original, msg.quoted_type);
+  const hasContent = !!choice.text || !!mediaType;
+
+  const authorJid = original?.from_me === 1
+    ? null
+    : msg.quoted_author ?? original?.sender_jid ?? null;
+  const author = original?.from_me === 1
+    ? "You"
+    : authorJid
+      ? resolveSenderName(queries, authorJid, original?.push_name)
+      : original?.push_name ?? "Unknown";
+
+  return {
+    author,
+    authorJid,
+    text: choice.text,
+    mediaType,
+    edited: choice.edited,
+    missing: !hasContent,
+  };
 }
 
 export function Messages(props: { queries: StoreQueries; scrollRef?: (el: any) => void }) {
@@ -93,23 +131,13 @@ export function Messages(props: { queries: StoreQueries; scrollRef?: (el: any) =
         ? "You"
         : resolveSenderName(props.queries, msg.sender_jid || msg.chat_jid, msg.push_name);
 
-      // Resolve quoted message preview — text if available, else a media
-      // label so image/sticker/video replies still get a "> Photo" indicator.
-      let quotedText: string | null = null;
-      if (msg.quoted_id) {
-        const quoted = props.queries.getMessageContent(msg.quoted_id);
-        if (quoted?.text) quotedText = quoted.text;
-        else if (quoted) {
-          const label = mediaLabel(quoted.type);
-          if (label) quotedText = label;
-        }
-      }
+      const quote = resolveQuote(msg, props.queries);
 
       // Resolve `@<digits>` mention tokens to contact names for display.
       // Cached per (id, text) so the per-tick re-render is cheap.
       const resolvedText = getResolvedMentionText(msg, props.queries);
 
-      result.push({ message: msg, showSender, showDate, senderName, quotedText, resolvedText });
+      result.push({ message: msg, showSender, showDate, senderName, quote, resolvedText });
     }
 
     return result;
@@ -155,7 +183,7 @@ export function Messages(props: { queries: StoreQueries; scrollRef?: (el: any) =
                   showSender={item.showSender}
                   showDate={item.showDate}
                   senderName={item.senderName}
-                  quotedText={item.quotedText}
+                  quote={item.quote}
                   isMarked={markedIds().has(item.message.id)}
                   isSelected={isFocused() && (() => {
                     const jid = store.selectedChatJid;
