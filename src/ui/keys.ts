@@ -18,6 +18,9 @@ export function useAppKeyboard(actions: {
   onScrollMessagesPage: (dir: number) => void;
   onYankMessage: () => void;
   onReply: () => void;
+  onJumpOriginal?: () => void;
+  onJumpBack?: () => void;
+  onCancelOriginalLoad?: () => boolean;
   onOpenImage?: () => void;
   onOpenEditor?: () => void;
   onTypeAt?: () => void;
@@ -215,6 +218,14 @@ export function useAppKeyboard(actions: {
       }
     }
 
+    // Ctrl+O returns to the previous message position after an Original jump.
+    // Insert mode returned above, so the input box keeps this key for itself.
+    if (evt.ctrl && evt.name === "o") {
+      clearKeyBuffer();
+      if (store.focusZone === "messages") actions.onJumpBack?.();
+      return;
+    }
+
     // Search — context-aware. When focus is on messages, search within the
     // current chat's messages. Otherwise open the chat-list search overlay.
     // Both branches set mode to "search" so the global handler passes
@@ -245,6 +256,7 @@ export function useAppKeyboard(actions: {
 
     // Escape — drill back
     if (evt.name === "escape") {
+      if (actions.onCancelOriginalLoad?.()) return;
       drillBack();
       return;
     }
@@ -263,6 +275,13 @@ export function useAppKeyboard(actions: {
         // Type @ into the textarea to trigger completion
         actions.onTypeAt?.();
       }
+      return;
+    }
+
+    // Original jump — `gr` chord. It must precede the plain `r` Reply key.
+    if (evt.name === "r" && !evt.ctrl && !evt.meta && keyBuffer === "g") {
+      clearKeyBuffer();
+      if (store.focusZone === "messages") actions.onJumpOriginal?.();
       return;
     }
 

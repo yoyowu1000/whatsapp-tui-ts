@@ -387,6 +387,99 @@ export function App(props: {
     }
   }
 
+  let originalLoadToken = 0;
+  let originalLoading = false;
+  let loadingChatJid: string | null = null;
+
+  function cancelOriginalLoad(): boolean {
+    if (!originalLoading) return false;
+    originalLoadToken++;
+    originalLoading = false;
+    loadingChatJid = null;
+    helpers.clearToast();
+    return true;
+  }
+
+  function moveToLoadedMessage(jid: string, messageId: string, flash = true): boolean {
+    const msgs = store.messages[jid] ?? [];
+    const idx = msgs.findIndex((m) => m.id === messageId);
+    if (idx < 0) return false;
+    helpers.setSelectedMessageIndex(idx);
+    helpers.setFocusZone("messages");
+    try { messagesScrollRef?.scrollChildIntoView?.(`msg-${messageId}`); } catch {}
+    if (flash) helpers.flashMessage(messageId);
+    return true;
+  }
+
+  async function jumpToOriginal() {
+    const jid = store.selectedChatJid;
+    if (!jid) return;
+    const msgs = store.messages[jid] ?? [];
+    const reply = msgs[store.selectedMessageIndex];
+    const originalId = reply?.quoted_id;
+    if (!reply || !originalId) return;
+
+    // Check the DB first. This prevents a missing or cross-chat Original from
+    // triggering an unnecessary history walk.
+    const original = props.queries.getMessage(originalId);
+    if (!original) {
+      helpers.showToast("Original isn't saved in wa", "info", 4000);
+      return;
+    }
+    const chat = props.queries.getChat(jid);
+    const sameChat = original.chat_jid === jid || original.chat_jid === chat?.lid_jid;
+    if (!sameChat) {
+      helpers.showToast("Original is saved in another chat", "info", 4000);
+      return;
+    }
+
+    const currentPosition = reply.id;
+    const token = ++originalLoadToken;
+    originalLoading = true;
+    loadingChatJid = jid;
+    helpers.showToast("Loading…", "info", 60000);
+
+    while (token === originalLoadToken) {
+      if (moveToLoadedMessage(jid, originalId, false)) {
+        originalLoading = false;
+        loadingChatJid = null;
+        helpers.pushJumpPosition(jid, currentPosition);
+        helpers.flashMessage(originalId);
+        helpers.clearToast();
+        return;
+      }
+
+      const before = (store.messages[jid] ?? []).length;
+      helpers.loadMoreMessages(jid);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      if (token !== originalLoadToken) return;
+      const after = (store.messages[jid] ?? []).length;
+      if (after <= before) {
+        originalLoading = false;
+        loadingChatJid = null;
+        helpers.showToast("Original is saved but couldn't be loaded", "info", 5000);
+        return;
+      }
+    }
+  }
+
+  function jumpBack() {
+    const jid = store.selectedChatJid;
+    if (!jid || originalLoading) return;
+    const messageId = helpers.popJumpPosition(jid);
+    if (!messageId) return;
+    if (!moveToLoadedMessage(jid, messageId)) {
+      helpers.showToast("Previous position is no longer loaded", "info", 4000);
+    }
+  }
+
+  // Search overlays can switch chats through helpers.selectChat directly, so
+  // cancel an in-flight history walk even when the keyboard path is bypassed.
+  createEffect(() => {
+    const jid = store.selectedChatJid;
+    if (originalLoading && loadingChatJid !== jid) cancelOriginalLoad();
+  });
+
   useAppKeyboard({
     onQuit() {
       clearAllImages();
@@ -395,6 +488,7 @@ export function App(props: {
 
     onSelectChat() {
       const jid = store.highlightedChatJid;
+      if (originalLoading) cancelOriginalLoad();
       if (!jid) return;
       // Clear encode state BEFORE selectChat so the createEffect fired by
       // selectChat's setStore sees a fresh encodingStarted and runs a
@@ -572,6 +666,18 @@ export function App(props: {
       }
     },
 
+    onJumpOriginal() {
+      void jumpToOriginal();
+    },
+
+    onJumpBack() {
+      jumpBack();
+    },
+
+    onCancelOriginalLoad() {
+      return cancelOriginalLoad();
+    },
+
     onOpenImage() {
       const jid = store.selectedChatJid;
       if (!jid) return;
@@ -584,6 +690,10 @@ export function App(props: {
         openImageFullView(msg.id);
       } else if (mt === "videoMessage" || mt === "audioMessage" || mt === "documentMessage") {
         openMediaExternal(msg);
+      } else if (msg.quoted_id) {
+        // Enter keeps opening Reply media as before. Text Replies, and any
+        // Reply type Enter cannot open, jump to their Original instead.
+        void jumpToOriginal();
       }
     },
 

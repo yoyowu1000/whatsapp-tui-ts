@@ -72,6 +72,8 @@ export interface BubbleProps {
   isSelected?: boolean;
   /** Inside the VISUAL selection (the cursor message also has isSelected). */
   isMarked?: boolean;
+  /** Flash highlight applied after jumping to an Original. */
+  isHighlighted?: boolean;
 }
 
 export function MessageBubble(props: BubbleProps) {
@@ -85,7 +87,7 @@ export function MessageBubble(props: BubbleProps) {
     return store.encodedImages[props.message.id] ?? null;
   };
   const bubbleBg = () => {
-    if (props.isSelected || props.isMarked) return theme.bgMessageSelected;
+    if (props.isSelected || props.isMarked || props.isHighlighted) return theme.bgMessageSelected;
     return isOwn() ? theme.bgBubbleOwn : theme.bgBubbleOther;
   };
 

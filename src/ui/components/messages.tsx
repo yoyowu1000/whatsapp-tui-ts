@@ -185,6 +185,7 @@ export function Messages(props: { queries: StoreQueries; scrollRef?: (el: any) =
                   senderName={item.senderName}
                   quote={item.quote}
                   isMarked={markedIds().has(item.message.id)}
+                  isHighlighted={store.highlightedMessageId === item.message.id}
                   isSelected={isFocused() && (() => {
                     const jid = store.selectedChatJid;
                     if (!jid) return false;

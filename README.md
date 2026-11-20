@@ -49,7 +49,8 @@ This is a TypeScript rewrite of the original [Rust whatsapp-tui](https://github.
 - `Ctrl+E` opens an emoji picker
 - `Ctrl+V` paste image from clipboard
 - Long pastes show a truncated preview but preserve full text on send
-- Reply/quote any message, including media. `Esc` while composing clears the reply (cancel without sending).
+- Reply/quote any message, including media. The Quote shows the Quote author, uses the saved Original when available, marks edited text, folds long text, and `gr` jumps to the Original. `Ctrl+O` returns to the previous message position. `Esc` while composing clears the reply (cancel without sending).
+- Set `WA_TUI_QUOTE_MAX_LINES` to cap wrapped Quote rows (default: 100). Unfocused long Quotes fold to three rows; the selected Reply expands them up to the cap.
 
 **Navigation**
 - `j/k` chat list navigation, `J/K` message list scroll
