@@ -132,7 +132,7 @@ describe("schema v4 migration", () => {
     closeDb(db);
 
     const check = new Database(path, { readonly: true });
-    expect(check.query("SELECT version FROM schema_version").get()).toEqual({ version: 4 });
+    expect(check.query("SELECT version FROM schema_version").get()).toEqual({ version: 5 });
     check.close();
   });
 });

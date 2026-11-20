@@ -111,4 +111,8 @@ export interface AppStore {
   /** Id of the message where the VISUAL selection started. The cursor
    *  (selectedMessageIndex) is the other end. Null outside visual mode. */
   visualAnchorId: string | null;
+  /** Per-chat message-id positions used by Ctrl+O after an Original jump. */
+  jumpLists: Record<string, string[]>;
+  /** Message id currently flashing after an Original jump. */
+  highlightedMessageId: string | null;
 }

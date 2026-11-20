@@ -51,6 +51,9 @@ export interface MessageRow {
   height?: number | null;
   thumbnail?: string | null;
   quoted_id?: string | null;
+  quoted_author?: string | null;
+  quoted_text?: string | null;
+  quoted_type?: string | null;
   status: number;
   push_name?: string | null;
   react_emoji?: string | null;
@@ -224,8 +227,8 @@ export function initQueries(db: DbInstances): StoreQueries {
       (id, chat_jid, sender_jid, from_me, timestamp, type, text,
        media_type, media_path, media_key, direct_path, media_url,
        mimetype, file_name, file_size, width, height, thumbnail,
-       quoted_id, status, push_name)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
+       quoted_id, quoted_author, quoted_text, quoted_type, status, push_name)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
   `);
 
   const updateStatusStmt = writer.prepare(`
@@ -297,7 +300,7 @@ export function initQueries(db: DbInstances): StoreQueries {
     SELECT id, chat_jid, sender_jid, from_me, timestamp, type, text,
            media_type, media_path, media_key, direct_path, media_url,
            mimetype, file_name, file_size, width, height, thumbnail,
-           quoted_id, status, push_name, react_emoji
+           quoted_id, quoted_author, quoted_text, quoted_type, status, push_name, react_emoji
     FROM messages
     WHERE (chat_jid = ?1 OR chat_jid = ?2)
       AND (?3 = 0 OR timestamp < ?3)
@@ -311,7 +314,7 @@ export function initQueries(db: DbInstances): StoreQueries {
     SELECT id, chat_jid, sender_jid, from_me, timestamp, type, text,
            media_type, media_path, media_key, direct_path, media_url,
            mimetype, file_name, file_size, width, height, thumbnail,
-           quoted_id, status, push_name, react_emoji
+           quoted_id, quoted_author, quoted_text, quoted_type, status, push_name, react_emoji
     FROM messages
     WHERE (chat_jid = ?1 OR chat_jid = ?2)
       AND text IS NOT NULL
@@ -478,6 +481,9 @@ export function initQueries(db: DbInstances): StoreQueries {
       m.height ?? null,
       m.thumbnail ?? null,
       m.quoted_id != null ? String(m.quoted_id) : null,
+      m.quoted_author != null ? String(m.quoted_author) : null,
+      m.quoted_text != null ? String(m.quoted_text) : null,
+      m.quoted_type != null ? String(m.quoted_type) : null,
       Number(m.status) || 0,
       m.push_name != null ? String(m.push_name) : null
     );

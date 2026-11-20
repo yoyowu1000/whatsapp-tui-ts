@@ -5,6 +5,7 @@ import { log } from "../utils/log.ts";
 import { isTerminalFocused } from "../utils/terminal-focus.ts";
 import { MUTE_OPTIONS, isMuted, describeMute } from "../utils/mute.ts";
 import { truncate } from "../utils/text.ts";
+import { clearJumpLists, popJumpPosition, pushJumpPosition } from "./jump-list.ts";
 import type {
   AppStore,
   AppMode,
@@ -46,6 +47,10 @@ export interface AppStoreHelpers {
   showToast(message: string, level?: "error" | "info", durationMs?: number): void;
   clearToast(): void;
   setHelpScrollOffset(offset: number): void;
+  pushJumpPosition(jid: string, messageId: string): void;
+  popJumpPosition(jid: string): string | null;
+  clearJumpLists(): void;
+  flashMessage(messageId: string): void;
   /** Enter VISUAL mode anchored at the message under the cursor. */
   startVisual(): void;
   /** Leave VISUAL mode (back to NORMAL) and drop the selection. */
@@ -75,10 +80,13 @@ const INITIAL_STORE: AppStore = {
   toast: null,
   helpScrollOffset: 0,
   visualAnchorId: null,
+  jumpLists: {},
+  highlightedMessageId: null,
 };
 
 export function createAppStore(queries: StoreQueries): [AppStore, SetStoreFunction<AppStore>, AppStoreHelpers] {
   const [store, setStore] = createStore<AppStore>({ ...INITIAL_STORE });
+  let highlightTimer: ReturnType<typeof setTimeout> | null = null;
 
   function hydrate() {
     const chats = queries.listChats(500);
@@ -106,6 +114,8 @@ export function createAppStore(queries: StoreQueries): [AppStore, SetStoreFuncti
 
   function selectChat(jid: string) {
     exitVisual();
+    setStore("jumpLists", clearJumpLists(store.jumpLists));
+    setStore("highlightedMessageId", null);
     setStore("selectedChatJid", jid);
     // Move the chat-list cursor to the picked chat too. Without this,
     // jumping into a chat from the search overlay (or any other jump path)
@@ -199,6 +209,29 @@ export function createAppStore(queries: StoreQueries): [AppStore, SetStoreFuncti
     clearToast() { setStore("toast", null); },
 
     setHelpScrollOffset(offset) { setStore("helpScrollOffset", Math.max(0, offset)); },
+
+    pushJumpPosition(jid, messageId) {
+      setStore("jumpLists", jid, pushJumpPosition(store.jumpLists[jid] ?? [], messageId));
+    },
+
+    popJumpPosition(jid) {
+      const result = popJumpPosition(store.jumpLists[jid] ?? []);
+      setStore("jumpLists", jid, result.remaining);
+      return result.messageId;
+    },
+
+    clearJumpLists() {
+      setStore("jumpLists", clearJumpLists(store.jumpLists));
+    },
+
+    flashMessage(messageId) {
+      if (highlightTimer) clearTimeout(highlightTimer);
+      setStore("highlightedMessageId", messageId);
+      highlightTimer = setTimeout(() => {
+        setStore("highlightedMessageId", null);
+        highlightTimer = null;
+      }, 1000);
+    },
 
     openMuteDialog(jid) {
       const target = jid

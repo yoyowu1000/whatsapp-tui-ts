@@ -22,6 +22,7 @@ const SECTIONS: KeySection[] = [
       { keys: "?", description: "Show this help" },
       { keys: "Tab / Shift+Tab", description: "Cycle focus zones" },
       { keys: "Esc", description: "Drill back / cancel" },
+      { keys: "Ctrl+O", description: "Back to previous Original position" },
     ],
   },
   {
@@ -50,6 +51,7 @@ const SECTIONS: KeySection[] = [
       { keys: "G", description: "Jump to most recent" },
       { keys: "Enter", description: "Open image / video / PDF (full view)" },
       { keys: "r", description: "Reply to selected message" },
+      { keys: "gr", description: "Jump to the Reply's Original" },
       { keys: "e", description: "React to message (emoji picker)" },
       { keys: "f", description: "Forward to another chat" },
       { keys: "d", description: "Delete message (confirm)" },

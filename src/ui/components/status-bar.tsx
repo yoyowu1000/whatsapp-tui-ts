@@ -42,8 +42,20 @@ export function StatusBar() {
     switch (store.focusZone) {
       case "chat-list":
         return "j/k nav \u00b7 Enter open \u00b7 / search \u00b7 i insert";
-      case "messages":
-        return "j/k scroll \u00b7 r reply \u00b7 y yank \u00b7 v select \u00b7 a attach \u00b7 h back";
+      case "messages": {
+        const jid = store.selectedChatJid;
+        const message = jid ? store.messages[jid]?.[store.selectedMessageIndex] : undefined;
+        const hasMedia = !!message && [
+          "imageMessage", "stickerMessage", "videoMessage", "audioMessage", "documentMessage",
+        ].includes(message.media_type ?? message.type);
+        const jumpHint = jid && (store.jumpLists[jid]?.length ?? 0) > 0 ? " \u00b7 ^O back" : "";
+        if (message?.quoted_id) {
+          return hasMedia
+            ? `j/k scroll \u00b7 gr original${jumpHint}`
+            : `j/k scroll \u00b7 \u23ce original \u00b7 gr${jumpHint}`;
+        }
+        return `j/k scroll \u00b7 r reply \u00b7 y yank \u00b7 v select \u00b7 a attach \u00b7 h back${jumpHint}`;
+      }
       case "input":
         return "i insert \u00b7 a attach \u00b7 Ctrl+G editor \u00b7 Esc back";
     }
