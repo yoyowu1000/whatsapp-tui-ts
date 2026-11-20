@@ -67,11 +67,14 @@ function resolveName(jid: string): string {
   if (contact?.notify) return contact.notify;
   // Try LID lookup
   for (const [, c] of contacts) {
-    if (c.lid && jid.startsWith(c.lid.split("@")[0])) {
-      return c.name || c.notify || jid.split("@")[0];
+    if (c.lid) {
+      const lidBase = c.lid.split("@")[0] ?? c.lid;
+      if (jid.startsWith(lidBase)) {
+        return c.name || c.notify || jid.split("@")[0] || jid;
+      }
     }
   }
-  return jid.split("@")[0];
+  return jid.split("@")[0] || jid;
 }
 
 function getMessageType(
@@ -352,7 +355,7 @@ async function connect() {
   sock.ev.on("creds.update", saveCreds);
 
   // ── Debug: log ALL event names ────────────────────────────────
-  const originalEmit = sock.ev.emit.bind(sock.ev);
+  const originalEmit = sock.ev.emit.bind(sock.ev) as (...args: any[]) => any;
   sock.ev.emit = ((event: string, ...args: any[]) => {
     if (event !== "messages.upsert" && event !== "creds.update" && event !== "messages.update") {
       const dataSize = args[0] ? (Array.isArray(args[0]) ? args[0].length : "obj") : "?";
@@ -454,8 +457,10 @@ async function connect() {
 
   sock.ev.on("contacts.update", (updates) => {
     for (const u of updates) {
-      const existing = contacts.get(u.id) || {};
-      contacts.set(u.id, {
+      const id = u.id;
+      if (!id) continue;
+      const existing = contacts.get(id) || {};
+      contacts.set(id, {
         name: (u as any).name || existing.name,
         notify: (u as any).notify || existing.notify,
         lid: (u as any).lid || existing.lid,
@@ -468,11 +473,13 @@ async function connect() {
 
   sock.ev.on("chats.upsert", (newChats) => {
     for (const c of newChats) {
-      chats.set(c.id, {
-        id: c.id,
-        name: (c as any).name || chats.get(c.id)?.name,
-        conversationTimestamp: Number((c as any).conversationTimestamp) || chats.get(c.id)?.conversationTimestamp,
-        unreadCount: (c as any).unreadCount ?? chats.get(c.id)?.unreadCount,
+      const id = c.id;
+      if (!id) continue;
+      chats.set(id, {
+        id,
+        name: (c as any).name || chats.get(id)?.name,
+        conversationTimestamp: Number((c as any).conversationTimestamp) || chats.get(id)?.conversationTimestamp,
+        unreadCount: (c as any).unreadCount ?? chats.get(id)?.unreadCount,
       });
     }
     log("chats", `Synced ${newChats.length} chats (total: ${chats.size})`);
@@ -480,8 +487,10 @@ async function connect() {
 
   sock.ev.on("chats.update", (updates) => {
     for (const u of updates) {
-      const existing = chats.get(u.id) || { id: u.id };
-      chats.set(u.id, {
+      const id = u.id;
+      if (!id) continue;
+      const existing: { id: string; name?: string; conversationTimestamp?: number; unreadCount?: number } = chats.get(id) || { id };
+      chats.set(id, {
         ...existing,
         name: (u as any).name || existing.name,
         conversationTimestamp: Number((u as any).conversationTimestamp) || existing.conversationTimestamp,
