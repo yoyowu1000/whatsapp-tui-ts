@@ -12,6 +12,7 @@ import { isTerminalFocused } from "../utils/terminal-focus.ts";
 import { MUTE_ALWAYS, MUTE_NONE, isMuted, normalizeMuteUntil } from "../utils/mute.ts";
 import { resolveSenderName } from "../utils/text.ts";
 import { cacheRawMessage } from "./media.ts";
+import { extractQuoteCopy } from "./quote.ts";
 import { MEDIA_TYPES, SKIP_MESSAGE_TYPES, mediaLabel } from "./message-types.ts";
 
 // ── Converters ──────────────────────────────────────────────────────
@@ -116,6 +117,7 @@ function convertMessage(msg: WAMessage): MessageRow | null {
     null;
 
   const isMedia = contentType && MEDIA_TYPES.has(contentType);
+  const quote = extractQuoteCopy(content?.contextInfo);
 
   return {
     id: msg.key.id,
@@ -139,6 +141,9 @@ function convertMessage(msg: WAMessage): MessageRow | null {
              : content?.pngThumbnail ? Buffer.from(content.pngThumbnail).toString("base64")
              : null,
     quoted_id: content?.contextInfo?.stanzaId ?? null,
+    quoted_author: quote.author,
+    quoted_text: quote.text,
+    quoted_type: quote.type,
     status: msg.status ?? 0,
     push_name: msg.pushName ?? null,
   };
