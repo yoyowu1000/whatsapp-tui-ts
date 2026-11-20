@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   computeReconnect,
+  budgetSpent,
   RECONNECT_INITIAL,
   RECONNECT_CEILING_MS,
   RECONNECT_FLOOR_MS,
@@ -195,5 +196,14 @@ describe("computeReconnect rolling connect budget", () => {
   it("zero connectsInWindow (tracking disabled) never flags overBudget", () => {
     const d = computeReconnect({ ...RECONNECT_INITIAL }, CONNECTION_LOST, false, NO_JITTER, 0);
     expect(d.overBudget).toBe(false);
+  });
+});
+
+describe("budgetSpent", () => {
+  it("is false below the budget and true from the budget on", () => {
+    expect(budgetSpent(0)).toBe(false);
+    expect(budgetSpent(CONNECT_BUDGET - 1)).toBe(false);
+    expect(budgetSpent(CONNECT_BUDGET)).toBe(true);
+    expect(budgetSpent(CONNECT_BUDGET + 11)).toBe(true);
   });
 });

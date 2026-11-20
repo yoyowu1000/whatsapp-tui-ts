@@ -3,6 +3,11 @@ import { initQueries, type StoreQueries } from "./store/queries.ts";
 import { createClient, createClientNonBlocking, type WaClient } from "./wa/client.ts";
 import { registerHandlers } from "./wa/handlers.ts";
 import { backfillMuteStateOnce } from "./wa/mute.ts";
+import { CONNECT_BUDGET } from "./wa/reconnect.ts";
+
+// Exit code when wa quits at the connect budget (EX_TEMPFAIL). Not 42, which
+// bin/wa treats as "restart now".
+const EXIT_BUDGET_SPENT = 75;
 import { createInterface } from "readline";
 import { existsSync } from "fs";
 import { log, ok, warn, err } from "./utils/log.ts";
@@ -344,6 +349,13 @@ async function runTui() {
       helpers.setConnection({ status: "reconnecting", reconnectAttempt: attempt }),
     onDisconnected: (reason) =>
       helpers.setConnection({ status: "disconnected" }),
+    onBudgetSpent: (attempts) =>
+      void quit(
+        `wa closed itself: ${attempts} connection attempts in 24 hours (limit ${CONNECT_BUDGET}).\n` +
+          "Each attempt is a WhatsApp login, and too many can get the account blocked for a while.\n" +
+          "Start wa again when you need it; it waits up to 10 minutes after the last attempt.\n",
+        EXIT_BUDGET_SPENT,
+      ),
     getMessage: async (key) => {
       if (!key.id) return undefined;
       const row = queries.getMessageContent(key.id);
@@ -390,7 +402,8 @@ async function runTui() {
 
   const unsubscribeFocus = subscribeFocusChange(publishPresence);
 
-  async function quit() {
+  /** `message` is printed after the terminal is restored, so it stays on screen. */
+  async function quit(message?: string, code = 0) {
     unsubscribeFocus();
     if (pendingUnavailable) {
       clearTimeout(pendingUnavailable);
@@ -415,7 +428,8 @@ async function runTui() {
     } catch {}
     try { client.sock?.end?.(undefined); } catch {}
     closeDb(db);
-    process.exit(0);
+    if (message) process.stderr.write(message);
+    process.exit(code);
   }
 
   await render(
@@ -426,7 +440,7 @@ async function runTui() {
             queries={queries}
             getSock={() => currentSock}
             getRenderer={() => renderer}
-            onQuit={quit}
+            onQuit={() => void quit()}
           />
         </ThemeProvider>
       </AppStoreProvider>

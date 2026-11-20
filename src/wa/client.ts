@@ -18,6 +18,7 @@ import { AUTH_DIR } from "../utils/paths.ts";
 import { resyncContacts } from "./app-state.ts";
 import {
   computeReconnect,
+  budgetSpent,
   RECONNECT_INITIAL,
   STABLE_OPEN_MS,
   CB_COOLDOWN_CEILING_MS,
@@ -51,6 +52,9 @@ export interface ClientOptions {
   onConnected?: (sock: WASocket) => void;
   onReconnecting?: (attempt: number) => void;
   onDisconnected?: (reason: number | undefined) => void;
+  /** Called instead of reconnecting once the rolling 24h connect budget is
+   *  spent. Without it, reconnects carry on at the ~10m budget floor. */
+  onBudgetSpent?: (attempts: number) => void;
   getMessage?: (key: WAMessageKey) => Promise<WAMessageContent | undefined>;
 }
 
@@ -321,6 +325,22 @@ function initClientCore(options: ClientOptions): {
             connectTimes.length,
           );
           reconnectState = decision.next;
+          if (options.onBudgetSpent && budgetSpent(connectTimes.length)) {
+            // Keep the history (no cooldown): a manual restart then waits
+            // the usual ~10m from the last attempt before its one login.
+            persistNow(0, "budget");
+            warn(
+              "wa",
+              `Connect budget spent (${connectTimes.length} attempts in 24h, budget ${CONNECT_BUDGET}): closing instead of reconnecting`,
+            );
+            notify({
+              title: "wa-tui closed",
+              body: `${connectTimes.length} connection attempts in 24h. Start wa again when you need it.`,
+              chatJid: "wa-tui:budget",
+            });
+            options.onBudgetSpent(connectTimes.length);
+            return;
+          }
           // Persist before sleeping so a restart mid-delay serves the
           // remainder instead of connecting immediately.
           persistNow(

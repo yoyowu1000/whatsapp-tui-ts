@@ -35,6 +35,15 @@ export const CONNECT_BUDGET_WINDOW_MS = 24 * 60 * 60_000;
 export const CONNECT_BUDGET = 60; // healthy days log 1-5 attempts; sleep/wake churn ~10
 export const BUDGET_FLOOR_MS = 10 * 60_000; // min delay once over budget (pre-jitter)
 
+// True once the rolling window holds CONNECT_BUDGET attempts. The TUI then
+// quits instead of reconnecting every ~10m: left alone overnight (a sleeping
+// Mac wakes every few minutes and redoes the login), the floor still let it
+// pass 70 logins in 24h. Unlike `overBudget`, this also holds inside the
+// penalty box, since every cooldown retry is a login too.
+export function budgetSpent(connectsInWindow: number): boolean {
+  return connectsInWindow >= CONNECT_BUDGET;
+}
+
 // A connection must stay open at least this long to count as "healthy". A
 // shorter open (a throttle flap that accepts the handshake then drops the
 // stream) must NOT reset the breaker accounting, otherwise repeated flaps each

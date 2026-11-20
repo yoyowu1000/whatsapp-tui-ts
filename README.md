@@ -72,6 +72,7 @@ This is a TypeScript rewrite of the original [Rust whatsapp-tui](https://github.
 - Phone notifications keep working while wa-tui is open: presence follows terminal focus, and on macOS it also goes "away" after 3 minutes without keyboard or mouse input, so a locked or sleeping-display Mac no longer silences your phone
 - History sync from baileys (bootstrap and recent history on link), persisted to local SQLite (WAL mode)
 - Socket liveness check forces reconnect if WhatsApp stops sending frames (zombie socket recovery)
+- Closes itself after 60 connection attempts in 24 hours, with a notification, instead of retrying every 10 minutes. Each attempt is a WhatsApp login, and too many can get the account blocked for a while. Starting it again works; it waits up to 10 minutes after the last attempt
 - Background daemon can fire native notifications even when wa-tui is in another tmux session
 
 **Native macOS notifications (optional)**
