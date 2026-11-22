@@ -1,3 +1,4 @@
+import { isVisibleMessage } from "./message-cursor.ts";
 import { Show } from "solid-js";
 import { existsSync, statSync, mkdirSync, copyFileSync } from "fs";
 import { readFile } from "fs/promises";
@@ -573,7 +574,7 @@ export function Layout(props: {
             const jid = store.selectedChatJid;
             if (!jid) return;
             const msgs = store.messages[jid] ?? [];
-            const idx = msgs.findIndex((m) => m.id === msg.id);
+            const idx = msgs.findIndex((m) => m.id === msg.id && isVisibleMessage(m));
             if (idx >= 0) {
               // Found in the loaded slice — set selected index, focus the
               // messages zone, and scroll the message into view via the

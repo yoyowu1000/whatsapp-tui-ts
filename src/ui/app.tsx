@@ -15,6 +15,7 @@ import type { StoreQueries } from "../store/queries.ts";
 import type { WASocket } from "@whiskeysockets/baileys";
 import type { InputMethods, ConfirmOption } from "./types.ts";
 import type { MessageRow } from "../store/queries.ts";
+import { isVisibleMessage, moveMessageCursor, visibleMessageIndex } from "./message-cursor.ts";
 import { buildMixedParts, planYank, visualSelection } from "./yank.ts";
 import { copyImageFilesToClipboard, copyMixedToClipboard } from "../utils/clipboard-image.ts";
 
@@ -402,7 +403,7 @@ export function App(props: {
 
   function moveToLoadedMessage(jid: string, messageId: string, flash = true): boolean {
     const msgs = store.messages[jid] ?? [];
-    const idx = msgs.findIndex((m) => m.id === messageId);
+    const idx = msgs.findIndex((m) => m.id === messageId && isVisibleMessage(m));
     if (idx < 0) return false;
     helpers.setSelectedMessageIndex(idx);
     helpers.setFocusZone("messages");
@@ -424,6 +425,10 @@ export function App(props: {
     const original = props.queries.getMessage(originalId);
     if (!original) {
       helpers.showToast("Original isn't saved in wa", "info", 4000);
+      return;
+    }
+    if (!isVisibleMessage(original)) {
+      helpers.showToast("Original isn't a displayed message", "info", 4000);
       return;
     }
     const chat = props.queries.getChat(jid);
@@ -583,12 +588,16 @@ export function App(props: {
         helpers.loadMoreMessages(jid);
         const msgs = store.messages[jid];
         if (!msgs || msgs.length === 0) return;
-        helpers.setSelectedMessageIndex(msgs.length - 1);
+        const index = moveMessageCursor(msgs, 0, msgs.length);
+        if (index < 0) return;
+        helpers.setSelectedMessageIndex(index);
         if (messagesScrollRef) messagesScrollRef.scrollTop = 0;
       } else {
         const msgs = store.messages[jid];
         if (!msgs || msgs.length === 0) return;
-        helpers.setSelectedMessageIndex(0);
+        const index = visibleMessageIndex(msgs, 0);
+        if (index < 0) return;
+        helpers.setSelectedMessageIndex(index);
         if (messagesScrollRef) messagesScrollRef.scrollTop = messagesScrollRef.scrollHeight;
       }
     },
@@ -598,8 +607,8 @@ export function App(props: {
       if (!jid) return;
       const msgs = store.messages[jid];
       if (!msgs || msgs.length === 0) return;
-      const maxIdx = msgs.length - 1;
-      const newIdx = Math.max(0, Math.min(maxIdx, store.selectedMessageIndex - dir));
+      const newIdx = moveMessageCursor(msgs, store.selectedMessageIndex, -dir);
+      if (newIdx < 0) return;
       helpers.setSelectedMessageIndex(newIdx);
       // Scroll the selected message into view
       const targetMsg = msgs[newIdx];
@@ -615,7 +624,8 @@ export function App(props: {
       if (!msgs) return;
       const maxIdx = msgs.length - 1;
       const step = 10;
-      const newIdx = Math.max(0, Math.min(maxIdx, store.selectedMessageIndex - dir * step));
+      const newIdx = moveMessageCursor(msgs, store.selectedMessageIndex, -dir * step);
+      if (newIdx < 0) return;
       helpers.setSelectedMessageIndex(newIdx);
       if (newIdx >= maxIdx - 5 && dir < 0) helpers.loadMoreMessages(jid);
       const targetMsg = msgs[newIdx];

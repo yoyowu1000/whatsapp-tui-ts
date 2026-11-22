@@ -30,3 +30,24 @@ it("retains both VISUAL endpoints beyond the first 100 rows on arrival", () => {
   expect(store.selectedMessageIndex).toBe(126);
   closeDb(db);
 });
+
+it("selects only visible endpoints and won't anchor VISUAL on a hidden-only chat", () => {
+  const { db, store: queries } = freshStore("hidden.db");
+  const jid = "hidden-synthetic@g.us";
+  queries.upsertChat({ jid, is_group: 1 });
+  for (let i = 1; i <= 4; i++) queries.insertMessage({
+    id: `h${i}`, chat_jid: jid, from_me: 1, timestamp: i, status: 0,
+    type: i === 2 ? "conversation" : "reactionMessage", text: "synthetic",
+  });
+  const [store, setStore, helpers] = createAppStore(queries);
+  helpers.selectChat(jid);
+  expect(store.selectedMessageIndex).toBe(2);
+  helpers.setSelectedMessageIndex(3);
+  expect(store.selectedMessageIndex).toBe(2);
+  setStore("messages", jid, [queries.getMessage("h4")!]);
+  helpers.setSelectedMessageIndex(0);
+  helpers.startVisual();
+  expect(store.mode).toBe("normal");
+  expect(store.visualAnchorId).toBeNull();
+  closeDb(db);
+});

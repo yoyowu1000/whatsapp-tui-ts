@@ -5,7 +5,7 @@ import { log } from "../utils/log.ts";
 import { isTerminalFocused } from "../utils/terminal-focus.ts";
 import { MUTE_OPTIONS, isMuted, describeMute } from "../utils/mute.ts";
 import { truncate } from "../utils/text.ts";
-import { cursorAfterReload } from "./message-cursor.ts";
+import { cursorAfterReload, visibleMessageIndex } from "./message-cursor.ts";
 import { clearJumpLists, popJumpPosition, pushJumpPosition } from "./jump-list.ts";
 import type {
   AppStore,
@@ -123,7 +123,6 @@ export function createAppStore(queries: StoreQueries): [AppStore, SetStoreFuncti
     // leaves the chat-list highlight wherever it was, so backing out lands
     // in the wrong row.
     setStore("highlightedChatJid", jid);
-    setStore("selectedMessageIndex", 0);
     setStore("replyToMessageId", null);
 
     // Fetch the latest 100 messages and MERGE with whatever's already in
@@ -145,6 +144,7 @@ export function createAppStore(queries: StoreQueries): [AppStore, SetStoreFuncti
       setStore("messages", jid, fresh);
     }
 
+    setStore("selectedMessageIndex", Math.max(0, visibleMessageIndex(store.messages[jid] ?? [], 0)));
     const idx = store.chats.findIndex((c) => c.jid === jid);
     if (idx >= 0) {
       setStore("chats", idx, "unread", 0);
@@ -181,11 +181,14 @@ export function createAppStore(queries: StoreQueries): [AppStore, SetStoreFuncti
     setConnection(state) { setStore("connection", state); },
     setOverlay(overlay) { setStore("overlay", overlay); },
     setReplyTo(messageId) { setStore("replyToMessageId", messageId); },
-    setSelectedMessageIndex(index) { setStore("selectedMessageIndex", index); },
+    setSelectedMessageIndex(index) {
+      const messages = store.messages[store.selectedChatJid ?? ""] ?? [];
+      setStore("selectedMessageIndex", Math.max(0, visibleMessageIndex(messages, index)));
+    },
     startVisual() {
       const jid = store.selectedChatJid;
       const msg = jid ? store.messages[jid]?.[store.selectedMessageIndex] : undefined;
-      if (!msg) return;
+      if (!msg || visibleMessageIndex(store.messages[jid!] ?? [], store.selectedMessageIndex) !== store.selectedMessageIndex) return;
       setStore("visualAnchorId", msg.id);
       setStore("mode", "visual");
     },
@@ -302,7 +305,7 @@ export function createAppStore(queries: StoreQueries): [AppStore, SetStoreFuncti
             const cursor = cursorAfterReload(before, msgs, store.selectedMessageIndex, store.mode === "visual");
             batch(() => {
               setStore("messages", viewing, msgs);
-              setStore("selectedMessageIndex", cursor);
+              setStore("selectedMessageIndex", Math.max(0, cursor));
             });
           }
           const chatIdx = store.chats.findIndex(c => c.jid === chatJid);
