@@ -1,9 +1,17 @@
-import { Show, createMemo, type Accessor } from "solid-js";
+import { For, Show, createMemo, type Accessor } from "solid-js";
 import { useTheme, type Theme } from "../theme.tsx";
 import { useAppStore } from "../state.tsx";
 import { IMAGE_MEDIA_TYPES } from "../image.ts";
 import type { MessageRow } from "../../store/queries.ts";
 import { mediaLabel as mediaTypeLabel } from "../../wa/message-types.ts";
+import {
+  planQuoteRows,
+  quoteMaxLines,
+  quoteScreenRows,
+  wrappedRowCount,
+  type QuoteDisplay,
+  type QuoteRowsPlan,
+} from "../quote.ts";
 import type { EncodedImageData } from "../types.ts";
 
 function senderColorFromName(name: string, colors: string[]): string {
@@ -60,8 +68,12 @@ export interface BubbleProps {
   showSender: boolean;
   showDate: boolean;
   senderName: string;
-  quotedText?: string | null;
+  quote?: QuoteDisplay | null;
   isSelected?: boolean;
+  /** Inside the VISUAL selection (the cursor message also has isSelected). */
+  isMarked?: boolean;
+  /** Flash highlight applied after jumping to an Original. */
+  isHighlighted?: boolean;
 }
 
 export function MessageBubble(props: BubbleProps) {
@@ -75,7 +87,7 @@ export function MessageBubble(props: BubbleProps) {
     return store.encodedImages[props.message.id] ?? null;
   };
   const bubbleBg = () => {
-    if (props.isSelected) return theme.bgMessageSelected;
+    if (props.isSelected || props.isMarked || props.isHighlighted) return theme.bgMessageSelected;
     return isOwn() ? theme.bgBubbleOwn : theme.bgBubbleOther;
   };
 
@@ -109,38 +121,55 @@ export function MessageBubble(props: BubbleProps) {
     return "";
   };
 
-  const contentText = createMemo(() => {
-    const lines: string[] = [];
-    if (props.quotedText) {
-      lines.push("> " + props.quotedText.slice(0, 50));
-    }
-    const content = msgContent();
-    if (content) lines.push(content);
-    return lines.join("\n");
+  const contentText = createMemo(() => msgContent());
+
+  const wrapCols = createMemo(() => {
+    const termCols = process.stdout.columns || 80;
+    return Math.max(20, Math.floor(termCols * 0.70 * 0.65) - 4);
   });
 
-  // Estimate the number of visual lines the rendered text will occupy after
-  // word wrapping in the bubble. The bubble has `maxWidth="65%"` inside the
-  // messages area which is `flexGrow=1` of the parent (chat list takes 30%),
-  // so the bubble's interior text width is approximately:
-  //   termCols * 0.70 (messages area) * 0.65 (bubble maxWidth) - 2 (paddingX)
-  // We use ceil(line.length / wrapCols) per explicit \n-separated line to
-  // count how many visual rows each will wrap to, then sum. This is a
-  // character-count approximation — emoji and CJK take 2 cells each, so
-  // wide-char-heavy messages may slightly under-count. The 4-char safety
-  // margin compensates for that and for word-boundary wrap which can leave
-  // a partial line.
+  const quoteText = (quote: QuoteDisplay): string => {
+    if (quote.missing) return "Reply to a message wa doesn't have";
+    if (quote.mediaType) {
+      const label = mediaTypeLabel(quote.mediaType) || quote.mediaType;
+      return quote.text ? `${label}: ${quote.text}` : label;
+    }
+    return quote.text ?? "";
+  };
+
+  const quoteHasAuthor = () => !!props.quote && !props.quote.missing;
+
+  const quotePlan = createMemo<QuoteRowsPlan | null>(() => {
+    const quote = props.quote;
+    if (!quote) return null;
+    // The bar prefix consumes two terminal cells on every Quote row.
+    return planQuoteRows(
+      quoteText(quote),
+      Math.max(1, wrapCols() - 2),
+      !!props.isSelected,
+      quoteMaxLines(),
+    );
+  });
+
+  const bodyLineCount = createMemo(() => {
+    const text = contentText();
+    return text ? wrappedRowCount(text, wrapCols()) : 0;
+  });
+
+  // Keep the explicit height estimate in sync with the Quote rows. The Quote
+  // author is not part of the cap, but it is still a real row in the bubble.
   const contentLineCount = createMemo(() => {
-    const t = contentText();
-    if (!t) return 0;
-    const termCols = process.stdout.columns || 80;
-    const wrapCols = Math.max(20, Math.floor(termCols * 0.70 * 0.65) - 4);
-    return t.split("\n").reduce((sum, line) => {
-      return sum + Math.max(1, Math.ceil(line.length / wrapCols));
-    }, 0);
+    const quote = quotePlan();
+    const quoteRows = quote ? quoteScreenRows(quote, quoteHasAuthor()) : 0;
+    if (imageData()) {
+      const caption = props.resolvedText ?? props.message.text;
+      return quoteRows + imageData()!.rows + (caption ? 1 : 0);
+    }
+    return quoteRows + bodyLineCount();
   });
 
   const nameColor = () => senderColorFromName(props.senderName, theme.senderColors);
+  const quoteNameColor = () => senderColorFromName(props.quote?.author ?? "", theme.senderColors);
 
   return (
     <box flexDirection="column" marginBottom={1}>
@@ -172,27 +201,57 @@ export function MessageBubble(props: BubbleProps) {
               <text fg={nameColor()}>{props.senderName}</text>
             </box>
           </Show>
-          {/* Inline image (Kitty virtual placement) */}
-          <Show when={imageData()}>
-            {(img: Accessor<EncodedImageData>) => (
-              <box height={img().rows} width={img().cols}>
-                <text fg={img().fgHex}>{img().placeholders}</text>
+          <box flexDirection="column" height={contentLineCount()}>
+            {/* Quote author and rows sit above the Reply body. */}
+            <Show when={quotePlan()}>
+              {(plan: Accessor<QuoteRowsPlan>) => (
+                <box flexDirection="column" height={quoteScreenRows(plan(), quoteHasAuthor())}>
+                  <Show when={quoteHasAuthor()}>
+                    <box flexDirection="row" height={1}>
+                      <text fg={theme.textMuted}>{"│ "}</text>
+                      <text fg={quoteNameColor()}>{props.quote?.author ?? ""}</text>
+                      <Show when={props.quote?.edited}>
+                        <text fg={theme.textMuted}>{" · edited"}</text>
+                      </Show>
+                    </box>
+                  </Show>
+                  <For each={plan().rows}>
+                    {(line, rowIndex) => {
+                      const isMoreRow = () => plan().moreLines > 0 && rowIndex() >= plan().visibleContentRows;
+                      return (
+                        <box flexDirection="row" height={1}>
+                          <text fg={theme.textMuted}>{"│ "}</text>
+                          <text fg={isMoreRow() ? theme.textMuted : theme.text}>{line}</text>
+                        </box>
+                      );
+                    }}
+                  </For>
+                </box>
+              )}
+            </Show>
+
+            {/* Inline image (Kitty virtual placement) */}
+            <Show when={imageData()}>
+              {(img: Accessor<EncodedImageData>) => (
+                <box height={img().rows} width={img().cols}>
+                  <text fg={img().fgHex}>{img().placeholders}</text>
+                </box>
+              )}
+            </Show>
+            {/* Text content (or media label if no image data yet) */}
+            <Show when={bodyLineCount() > 0 && !imageData()}>
+              <box height={bodyLineCount()}>
+                <text fg={theme.text}>{contentText()}</text>
               </box>
-            )}
-          </Show>
-          {/* Text content (or media label if no image data yet) */}
-          <Show when={contentLineCount() > 0 && !imageData()}>
-            <box height={contentLineCount()}>
-              <text fg={theme.text}>{contentText()}</text>
-            </box>
-          </Show>
-          {/* Caption below image — use the upstream-resolved text so any
-              `@<digits>` mentions get rendered as `@<contact name>`. */}
-          <Show when={imageData() && (props.resolvedText ?? props.message.text)}>
-            <box height={1}>
-              <text fg={theme.text}>{(props.resolvedText ?? props.message.text)!}</text>
-            </box>
-          </Show>
+            </Show>
+            {/* Caption below image — use the upstream-resolved text so any
+                `@<digits>` mentions get rendered as `@<contact name>`. */}
+            <Show when={imageData() && (props.resolvedText ?? props.message.text)}>
+              <box height={1}>
+                <text fg={theme.text}>{(props.resolvedText ?? props.message.text)!}</text>
+              </box>
+            </Show>
+          </box>
           <box height={1} flexDirection="row" justifyContent="flex-end" gap={1}>
             <Show when={props.message.react_emoji}>
               <text fg={theme.borderAccent}>{props.message.react_emoji!}</text>

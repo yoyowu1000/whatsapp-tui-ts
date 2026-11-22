@@ -8,7 +8,7 @@ export interface DbInstances {
   reader: Database;
 }
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS contacts (
@@ -54,6 +54,9 @@ CREATE TABLE IF NOT EXISTS messages (
   height     INTEGER,
   thumbnail  TEXT,
   quoted_id  TEXT,
+  quoted_author TEXT,
+  quoted_text TEXT,
+  quoted_type TEXT,
   status     INTEGER NOT NULL DEFAULT 0,
   push_name  TEXT,
   react_emoji TEXT
@@ -171,6 +174,17 @@ function migrate(writer: Database) {
     writer.run(
       "UPDATE chats SET muted_until = muted_until / 1000 WHERE muted_until > 100000000000"
     );
+  }
+
+  if (current < 5) {
+    // v5: preserve the Quote author, Quote copy text and Quote copy type on
+    // newly received Replies. Existing rows intentionally stay nullable.
+    const addCol = (col: string, type: string) => {
+      try { writer.run(`ALTER TABLE messages ADD COLUMN ${col} ${type}`); } catch {}
+    };
+    addCol("quoted_author", "TEXT");
+    addCol("quoted_text", "TEXT");
+    addCol("quoted_type", "TEXT");
   }
 
   if (current < SCHEMA_VERSION) {
