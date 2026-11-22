@@ -89,3 +89,30 @@ describe("buildMixedParts", () => {
     ]);
   });
 });
+
+
+describe("sender identity in mixed copies", () => {
+  it("separates different participants with the same display name", () => {
+    expect(buildMixedParts([
+      msg("a", { sender_jid: "alice-1", text: "one" }),
+      msg("b", { sender_jid: "alice-2", text: "two" }),
+    ], () => null, () => "Alex")).toEqual([{ text: "Alex: one" }, { text: "Alex: two" }]);
+  });
+  it("starts a new sender run for an image from a namesake", () => {
+    expect(buildMixedParts([
+      msg("a", { sender_jid: "alice-1", text: "one" }),
+      msg("b", { sender_jid: "alice-2", type: "imageMessage", media_type: "imageMessage", text: null }),
+    ], () => "/synthetic.jpg", () => "Alex")).toEqual([
+      { text: "Alex: one" }, { text: "Alex:" }, { image: "/synthetic.jpg" },
+    ]);
+  });
+  it("groups your own consecutive messages even across sender JID variants", () => {
+    expect(buildMixedParts([
+      msg("a", { sender_jid: "phone", from_me: 1, text: "one" }),
+      msg("b", { sender_jid: "lid", from_me: 1, text: "two" }),
+      msg("c", { sender_jid: "lid", from_me: 0, text: "three" }),
+    ], () => null, () => "You")).toEqual([
+      { text: "You: one" }, { text: "two" }, { text: "You: three" },
+    ]);
+  });
+});

@@ -68,7 +68,9 @@ export function buildMixedParts(
   let lastSender: string | null = null;
   for (const m of msgs) {
     const name = nameOf(m);
-    const newSender = name !== lastSender;
+    // Display names aren't identities: two group members may share one.
+    const sender = m.from_me ? "self" : `peer:${m.sender_jid || m.chat_jid || m.id}`;
+    const newSender = sender !== lastSender;
     if (IMAGE_MEDIA_TYPES.has(m.media_type ?? m.type)) {
       if (newSender) parts.push({ text: `${name}:` });
       const path = pathOf(m);
@@ -79,7 +81,7 @@ export function buildMixedParts(
     } else {
       continue;
     }
-    lastSender = name;
+    lastSender = sender;
   }
   return parts;
 }

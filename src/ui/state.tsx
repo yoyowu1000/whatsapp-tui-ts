@@ -1,10 +1,11 @@
-import { createContext, useContext } from "solid-js";
+import { batch, createContext, useContext } from "solid-js";
 import { createStore, type SetStoreFunction } from "solid-js/store";
 import type { StoreQueries, ChatRow, MessageRow, ContactRow } from "../store/queries.ts";
 import { log } from "../utils/log.ts";
 import { isTerminalFocused } from "../utils/terminal-focus.ts";
 import { MUTE_OPTIONS, isMuted, describeMute } from "../utils/mute.ts";
 import { truncate } from "../utils/text.ts";
+import { cursorAfterReload, visibleMessageIndex } from "./message-cursor.ts";
 import { clearJumpLists, popJumpPosition, pushJumpPosition } from "./jump-list.ts";
 import type {
   AppStore,
@@ -122,7 +123,6 @@ export function createAppStore(queries: StoreQueries): [AppStore, SetStoreFuncti
     // leaves the chat-list highlight wherever it was, so backing out lands
     // in the wrong row.
     setStore("highlightedChatJid", jid);
-    setStore("selectedMessageIndex", 0);
     setStore("replyToMessageId", null);
 
     // Fetch the latest 100 messages and MERGE with whatever's already in
@@ -144,6 +144,7 @@ export function createAppStore(queries: StoreQueries): [AppStore, SetStoreFuncti
       setStore("messages", jid, fresh);
     }
 
+    setStore("selectedMessageIndex", Math.max(0, visibleMessageIndex(store.messages[jid] ?? [], 0)));
     const idx = store.chats.findIndex((c) => c.jid === jid);
     if (idx >= 0) {
       setStore("chats", idx, "unread", 0);
@@ -180,11 +181,14 @@ export function createAppStore(queries: StoreQueries): [AppStore, SetStoreFuncti
     setConnection(state) { setStore("connection", state); },
     setOverlay(overlay) { setStore("overlay", overlay); },
     setReplyTo(messageId) { setStore("replyToMessageId", messageId); },
-    setSelectedMessageIndex(index) { setStore("selectedMessageIndex", index); },
+    setSelectedMessageIndex(index) {
+      const messages = store.messages[store.selectedChatJid ?? ""] ?? [];
+      setStore("selectedMessageIndex", Math.max(0, visibleMessageIndex(messages, index)));
+    },
     startVisual() {
       const jid = store.selectedChatJid;
       const msg = jid ? store.messages[jid]?.[store.selectedMessageIndex] : undefined;
-      if (!msg) return;
+      if (!msg || visibleMessageIndex(store.messages[jid!] ?? [], store.selectedMessageIndex) !== store.selectedMessageIndex) return;
       setStore("visualAnchorId", msg.id);
       setStore("mode", "visual");
     },
@@ -294,8 +298,15 @@ export function createAppStore(queries: StoreQueries): [AppStore, SetStoreFuncti
           // the user would return to wa-tui and miss the new-message cue.
           const isActivelyViewing = isViewingThisChat && isTerminalFocused();
           if (isViewingThisChat) {
-            const msgs = queries.getMessages(viewing, 100);
-            setStore("messages", viewing, msgs);
+            const before = store.messages[viewing] ?? [];
+            // Preserve loaded history too: otherwise a VISUAL endpoint older
+            // than the latest 100 rows vanishes on the next incoming message.
+            const msgs = queries.getMessages(viewing, Math.max(100, before.length + 1));
+            const cursor = cursorAfterReload(before, msgs, store.selectedMessageIndex, store.mode === "visual");
+            batch(() => {
+              setStore("messages", viewing, msgs);
+              setStore("selectedMessageIndex", Math.max(0, cursor));
+            });
           }
           const chatIdx = store.chats.findIndex(c => c.jid === chatJid);
           const shouldBumpUnread = !msg.from_me && !isActivelyViewing;
