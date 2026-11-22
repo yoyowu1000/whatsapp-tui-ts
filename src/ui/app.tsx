@@ -16,6 +16,7 @@ import type { WASocket } from "@whiskeysockets/baileys";
 import type { InputMethods, ConfirmOption } from "./types.ts";
 import type { MessageRow } from "../store/queries.ts";
 import { isVisibleMessage, moveMessageCursor, visibleMessageIndex } from "./message-cursor.ts";
+import { createYankSequence } from "./yank-sequence.ts";
 import { buildMixedParts, planYank, visualSelection } from "./yank.ts";
 import { copyImageFilesToClipboard, copyMixedToClipboard } from "../utils/clipboard-image.ts";
 
@@ -89,11 +90,13 @@ export function App(props: {
     );
   }
 
-  async function copyOrToast(write: () => Promise<void>): Promise<boolean> {
+  const yankSequence = createYankSequence();
+
+  async function copyOrToast(ticket: number, write: () => void | Promise<void>): Promise<boolean> {
     try {
-      await write();
-      return true;
+      return await yankSequence.write(ticket, write) && yankSequence.isCurrent(ticket);
     } catch (e) {
+      if (!yankSequence.isCurrent(ticket)) return false;
       helpers.showToast(`Copy failed: ${(e as Error)?.message ?? "unknown"}`, "error", 4000);
       return false;
     }
@@ -101,10 +104,11 @@ export function App(props: {
 
   // Images only: each goes on the macOS clipboard as its file plus a PNG
   // (OSC 52 carries text only), so Finder, Slack and Mail attach them all.
-  async function yankImages(images: MessageRow[]) {
+  async function yankImages(images: MessageRow[], ticket: number) {
     const byId = await fetchImageFiles(images);
+    if (!yankSequence.isCurrent(ticket)) return;
     if (byId.size === 0) return imageUnavailableToast();
-    if (!(await copyOrToast(() => copyImageFilesToClipboard([...byId.values()])))) return;
+    if (!(await copyOrToast(ticket, () => copyImageFilesToClipboard([...byId.values()])))) return;
     const missing = images.length - byId.size;
     helpers.showToast(`Copied ${imageLabel(byId.size)}${missing ? ` (${missing} unavailable)` : ""}`, "info", 2500);
   }
@@ -112,12 +116,13 @@ export function App(props: {
   // Text and images together: one document in chat order. Rich editors
   // (Notes, Mail, browser editors) paste text and pictures in place;
   // terminals get the text with each image as its file path.
-  async function yankMixed(targets: MessageRow[], images: MessageRow[], texts: number) {
+  async function yankMixed(targets: MessageRow[], images: MessageRow[], texts: number, ticket: number) {
     const byId = await fetchImageFiles(images);
+    if (!yankSequence.isCurrent(ticket)) return;
     const nameOf = (m: MessageRow) =>
       m.from_me ? "You" : resolveSenderName(props.queries, m.sender_jid || m.chat_jid, m.push_name);
     const parts = buildMixedParts(targets, (m) => byId.get(m.id), nameOf);
-    if (!(await copyOrToast(() => copyMixedToClipboard(parts)))) return;
+    if (!(await copyOrToast(ticket, () => copyMixedToClipboard(parts)))) return;
     const missing = images.length - byId.size;
     helpers.showToast(
       `Copied ${texts} message${texts === 1 ? "" : "s"} + ${imageLabel(byId.size)}${missing ? ` (${missing} unavailable)` : ""}`,
@@ -635,6 +640,7 @@ export function App(props: {
     },
 
     async onYankMessage() {
+      const ticket = yankSequence.begin();
       const jid = store.selectedChatJid;
       if (!jid) return;
       const msgs = store.messages[jid];
@@ -647,12 +653,12 @@ export function App(props: {
 
       const { images, texts } = planYank(targets);
       if (images.length > 0 && texts.length > 0) {
-        await yankMixed(targets, images, texts.length);
+        await yankMixed(targets, images, texts.length, ticket);
       } else if (images.length > 0) {
-        await yankImages(images);
+        await yankImages(images, ticket);
       } else if (texts.length > 0) {
         const b64 = Buffer.from(texts.join("\n")).toString("base64");
-        kittyWrite(`\x1b]52;c;${b64}\x07`);
+        if (!(await copyOrToast(ticket, () => { kittyWrite(`\x1b]52;c;${b64}\x07`); }))) return;
         helpers.showToast(texts.length > 1 ? `Copied ${texts.length} messages` : "Copied to clipboard", "info", 2000);
       } else {
         helpers.showToast("Nothing to copy", "info", 2000);
