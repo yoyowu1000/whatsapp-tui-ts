@@ -13,19 +13,57 @@
  */
 
 import { execFileSync } from "child_process";
-import { existsSync, statSync, mkdirSync, unlinkSync } from "fs";
+import { constants, closeSync, existsSync, fchmodSync, fstatSync, mkdirSync, openSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { randomBytes } from "crypto";
 
 const TEMP_DIR = "/tmp/wa-tui-clipboard";
+const PRIVATE_DIR_MODE = 0o700;
+const PRIVATE_FILE_MODE = 0o600;
 
-function ensureTempDir(): boolean {
+/** Ensure a directory is private without following a pre-existing symlink. */
+export function ensureTempDir(path = TEMP_DIR): boolean {
+  let fd: number | undefined;
   try {
-    if (!existsSync(TEMP_DIR)) {
-      mkdirSync(TEMP_DIR, { recursive: true });
+    try {
+      mkdirSync(path, { mode: PRIVATE_DIR_MODE });
+    } catch {
+      // The directory may already exist. openSync below verifies what it is.
     }
+
+    fd = openSync(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    const stat = fstatSync(fd);
+    const uid = process.getuid?.();
+    if (!stat.isDirectory() || uid === undefined || stat.uid !== uid) return false;
+
+    fchmodSync(fd, PRIVATE_DIR_MODE);
     return true;
   } catch {
     return false;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+/** Create a private file without following a pre-existing symlink. */
+export function writeClipboardSpec(path: string, contents: string): void {
+  let fd: number | undefined;
+  let created = false;
+  try {
+    fd = openSync(
+      path,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      PRIVATE_FILE_MODE,
+    );
+    created = true;
+    fchmodSync(fd, PRIVATE_FILE_MODE);
+    writeFileSync(fd, contents, { encoding: "utf8" });
+  } catch (error) {
+    if (created) {
+      try { unlinkSync(path); } catch {}
+    }
+    throw error;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
 }
 
@@ -190,24 +228,31 @@ async function writeClipboard(spec: ClipboardSpec): Promise<void> {
   if (process.platform !== "darwin") throw new Error("Image copy needs macOS");
   if (!ensureTempDir()) throw new Error("Can't create temp dir");
   const specPath = `${TEMP_DIR}/copy-${Date.now()}-${randomBytes(4).toString("hex")}.json`;
-  await Bun.write(specPath, JSON.stringify(spec));
-  const proc = Bun.spawn(["osascript", "-l", "JavaScript", "-e", WRITE_CLIPBOARD_JXA, "--", specPath], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const timer = setTimeout(() => proc.kill(), 15_000);
+  let specCreated = false;
   try {
-    const [out, err, code] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    if (code !== 0 || out.trim() !== "ok") {
-      throw new Error(err.trim() || `osascript exited ${code}`);
+    writeClipboardSpec(specPath, JSON.stringify(spec));
+    specCreated = true;
+    const proc = Bun.spawn(["osascript", "-l", "JavaScript", "-e", WRITE_CLIPBOARD_JXA, "--", specPath], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const timer = setTimeout(() => proc.kill(), 15_000);
+    try {
+      const [out, err, code] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+      if (code !== 0 || out.trim() !== "ok") {
+        throw new Error(err.trim() || `osascript exited ${code}`);
+      }
+    } finally {
+      clearTimeout(timer);
     }
   } finally {
-    clearTimeout(timer);
-    try { unlinkSync(specPath); } catch {}
+    if (specCreated) {
+      try { unlinkSync(specPath); } catch {}
+    }
   }
 }
 
