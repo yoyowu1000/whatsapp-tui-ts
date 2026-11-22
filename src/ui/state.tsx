@@ -1,10 +1,11 @@
-import { createContext, useContext } from "solid-js";
+import { batch, createContext, useContext } from "solid-js";
 import { createStore, type SetStoreFunction } from "solid-js/store";
 import type { StoreQueries, ChatRow, MessageRow, ContactRow } from "../store/queries.ts";
 import { log } from "../utils/log.ts";
 import { isTerminalFocused } from "../utils/terminal-focus.ts";
 import { MUTE_OPTIONS, isMuted, describeMute } from "../utils/mute.ts";
 import { truncate } from "../utils/text.ts";
+import { cursorAfterReload } from "./message-cursor.ts";
 import { clearJumpLists, popJumpPosition, pushJumpPosition } from "./jump-list.ts";
 import type {
   AppStore,
@@ -294,8 +295,15 @@ export function createAppStore(queries: StoreQueries): [AppStore, SetStoreFuncti
           // the user would return to wa-tui and miss the new-message cue.
           const isActivelyViewing = isViewingThisChat && isTerminalFocused();
           if (isViewingThisChat) {
-            const msgs = queries.getMessages(viewing, 100);
-            setStore("messages", viewing, msgs);
+            const before = store.messages[viewing] ?? [];
+            // Preserve loaded history too: otherwise a VISUAL endpoint older
+            // than the latest 100 rows vanishes on the next incoming message.
+            const msgs = queries.getMessages(viewing, Math.max(100, before.length + 1));
+            const cursor = cursorAfterReload(before, msgs, store.selectedMessageIndex, store.mode === "visual");
+            batch(() => {
+              setStore("messages", viewing, msgs);
+              setStore("selectedMessageIndex", cursor);
+            });
           }
           const chatIdx = store.chats.findIndex(c => c.jid === chatJid);
           const shouldBumpUnread = !msg.from_me && !isActivelyViewing;
