@@ -40,14 +40,23 @@ export interface YankPlan {
  * Split the messages to yank into images and the text of the other
  * messages. Image captions are not counted as text: images alone are copied
  * as files, and only a selection that also holds text messages becomes a
- * mixed document (see buildMixedParts).
+ * mixed document (see buildMixedParts). Quotes are included even on images,
+ * because copying only image files would discard the Reply's context.
  */
-export function planYank(msgs: readonly MessageRow[]): YankPlan {
+export function planYank(
+  msgs: readonly MessageRow[],
+  quoteOf: (m: MessageRow) => string | null = () => null,
+): YankPlan {
   const images: MessageRow[] = [];
   const texts: string[] = [];
   for (const m of msgs) {
-    if (IMAGE_MEDIA_TYPES.has(m.media_type ?? m.type)) images.push(m);
-    else if (m.text) texts.push(m.text);
+    const quote = quoteOf(m);
+    const image = IMAGE_MEDIA_TYPES.has(m.media_type ?? m.type);
+    if (image) images.push(m);
+    // A quoted image Reply needs a mixed document to retain its Quote;
+    // ordinary image-only selections still copy as files.
+    const text = [quote, image ? null : m.text].filter(Boolean).join("\n");
+    if (text) texts.push(text);
   }
   return { images, texts };
 }
@@ -63,6 +72,7 @@ export function buildMixedParts(
   msgs: readonly MessageRow[],
   pathOf: (m: MessageRow) => string | null | undefined,
   nameOf: (m: MessageRow) => string,
+  quoteOf: (m: MessageRow) => string | null = () => null,
 ): ClipboardPart[] {
   const parts: ClipboardPart[] = [];
   let lastSender: string | null = null;
@@ -71,7 +81,16 @@ export function buildMixedParts(
     // Display names aren't identities: two group members may share one.
     const sender = m.from_me ? "self" : `peer:${m.sender_jid || m.chat_jid || m.id}`;
     const newSender = sender !== lastSender;
-    if (IMAGE_MEDIA_TYPES.has(m.media_type ?? m.type)) {
+    const quote = quoteOf(m);
+    if (quote) {
+      if (newSender) parts.push({ text: `${name}:` });
+      parts.push({ text: quote });
+      if (IMAGE_MEDIA_TYPES.has(m.media_type ?? m.type)) {
+        const path = pathOf(m);
+        parts.push(path ? { image: path } : { text: "[image unavailable]" });
+      }
+      if (m.text) parts.push({ text: m.text });
+    } else if (IMAGE_MEDIA_TYPES.has(m.media_type ?? m.type)) {
       if (newSender) parts.push({ text: `${name}:` });
       const path = pathOf(m);
       parts.push(path ? { image: path } : { text: "[image unavailable]" });

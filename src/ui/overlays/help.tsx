@@ -56,7 +56,7 @@ const SECTIONS: KeySection[] = [
       { keys: "f", description: "Forward to another chat" },
       { keys: "d", description: "Delete message (confirm)" },
       { keys: "s", description: "Save media to ~/Downloads/wa-tui (confirm)" },
-      { keys: "y", description: "Yank message (image or text) to clipboard" },
+      { keys: "y", description: "Copy message and its Quote to clipboard" },
       { keys: "v", description: "VISUAL select: j/k extend, y copy, Esc cancel" },
       { keys: "gi", description: "Contact / group info" },
       { keys: "m", description: "Mute / unmute this chat" },

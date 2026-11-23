@@ -116,3 +116,38 @@ describe("sender identity in mixed copies", () => {
     ]);
   });
 });
+
+describe("copying Replies with their Quotes", () => {
+  const quoteOf = (m: MessageRow) => m.quoted_id ? "> Example Author\n> Photo: Please widen the heading" : null;
+  const reply = msg("reply", { quoted_id: "photo", text: "A reminder about this too" });
+
+  it("includes the Quote above a single copied Reply", () => {
+    expect(planYank([reply], quoteOf).texts).toEqual([
+      "> Example Author\n> Photo: Please widen the heading\nA reminder about this too",
+    ]);
+  });
+  it("keeps VISUAL chat order and each Reply's own Quote", () => {
+    const messages = [msg("newer"), reply, msg("older")];
+    const selected = visualSelection(messages, "newer", 2);
+    expect(planYank(selected, quoteOf).texts).toEqual([
+      "older", "> Example Author\n> Photo: Please widen the heading\nA reminder about this too", "newer",
+    ]);
+  });
+  it("places the Quote before an image Reply and its caption in mixed copies", () => {
+    const imageReply = msg("image-reply", { quoted_id: "photo", type: "imageMessage", media_type: "imageMessage", sender_jid: "b", text: "Updated version" });
+    expect(planYank([imageReply], quoteOf)).toEqual({ images: [imageReply], texts: [quoteOf(imageReply)!] });
+    expect(buildMixedParts([imageReply], () => "/synthetic.jpg", () => "Example Replier", quoteOf)).toEqual([
+      { text: "Example Replier:" },
+      { text: "> Example Author\n> Photo: Please widen the heading" },
+      { image: "/synthetic.jpg" },
+      { text: "Updated version" },
+    ]);
+  });
+  it("keeps the Reply sender distinct from the Quote author in mixed copies", () => {
+    expect(buildMixedParts([reply], () => null, () => "Example Replier", quoteOf)).toEqual([
+      { text: "Example Replier:" },
+      { text: "> Example Author\n> Photo: Please widen the heading" },
+      { text: "A reminder about this too" },
+    ]);
+  });
+});
