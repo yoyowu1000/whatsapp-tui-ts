@@ -3,6 +3,7 @@ import { useTheme, type Theme } from "../theme.tsx";
 import { useAppStore } from "../state.tsx";
 import { IMAGE_MEDIA_TYPES } from "../image.ts";
 import type { MessageRow } from "../../store/queries.ts";
+import { quoteBodyText } from "../message-quote.ts";
 import { mediaLabel as mediaTypeLabel } from "../../wa/message-types.ts";
 import {
   planQuoteRows,
@@ -128,15 +129,6 @@ export function MessageBubble(props: BubbleProps) {
     return Math.max(20, Math.floor(termCols * 0.70 * 0.65) - 4);
   });
 
-  const quoteText = (quote: QuoteDisplay): string => {
-    if (quote.missing) return "Reply to a message wa doesn't have";
-    if (quote.mediaType) {
-      const label = mediaTypeLabel(quote.mediaType) || quote.mediaType;
-      return quote.text ? `${label}: ${quote.text}` : label;
-    }
-    return quote.text ?? "";
-  };
-
   const quoteHasAuthor = () => !!props.quote && !props.quote.missing;
 
   const quotePlan = createMemo<QuoteRowsPlan | null>(() => {
@@ -144,7 +136,7 @@ export function MessageBubble(props: BubbleProps) {
     if (!quote) return null;
     // The bar prefix consumes two terminal cells on every Quote row.
     return planQuoteRows(
-      quoteText(quote),
+      quoteBodyText(quote),
       Math.max(1, wrapCols() - 2),
       !!props.isSelected,
       quoteMaxLines(),

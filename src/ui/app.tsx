@@ -16,6 +16,7 @@ import type { WASocket } from "@whiskeysockets/baileys";
 import type { InputMethods, ConfirmOption } from "./types.ts";
 import type { MessageRow } from "../store/queries.ts";
 import { isVisibleMessage, moveMessageCursor, visibleMessageIndex } from "./message-cursor.ts";
+import { resolveQuote, formatQuoteForCopy } from "./message-quote.ts";
 import { createYankSequence } from "./yank-sequence.ts";
 import { buildMixedParts, planYank, visualSelection } from "./yank.ts";
 import { copyImageFilesToClipboard, copyMixedToClipboard } from "../utils/clipboard-image.ts";
@@ -116,12 +117,12 @@ export function App(props: {
   // Text and images together: one document in chat order. Rich editors
   // (Notes, Mail, browser editors) paste text and pictures in place;
   // terminals get the text with each image as its file path.
-  async function yankMixed(targets: MessageRow[], images: MessageRow[], texts: number, ticket: number) {
+  async function yankMixed(targets: MessageRow[], images: MessageRow[], texts: number, ticket: number, quoteOf: (m: MessageRow) => string | null) {
     const byId = await fetchImageFiles(images);
     if (!yankSequence.isCurrent(ticket)) return;
     const nameOf = (m: MessageRow) =>
       m.from_me ? "You" : resolveSenderName(props.queries, m.sender_jid || m.chat_jid, m.push_name);
-    const parts = buildMixedParts(targets, (m) => byId.get(m.id), nameOf);
+    const parts = buildMixedParts(targets, (m) => byId.get(m.id), nameOf, quoteOf);
     if (!(await copyOrToast(ticket, () => copyMixedToClipboard(parts)))) return;
     const missing = images.length - byId.size;
     helpers.showToast(
@@ -651,9 +652,12 @@ export function App(props: {
         : [msgs[store.selectedMessageIndex]].filter((m): m is MessageRow => !!m);
       if (visual) helpers.exitVisual();
 
-      const { images, texts } = planYank(targets);
+      // Snapshot the same Quote shown in the bubble before any downloads.
+      const quotes = new Map(targets.map(m => [m.id, formatQuoteForCopy(resolveQuote(m, props.queries))]));
+      const quoteOf = (m: MessageRow) => quotes.get(m.id) ?? null;
+      const { images, texts } = planYank(targets, quoteOf);
       if (images.length > 0 && texts.length > 0) {
-        await yankMixed(targets, images, texts.length, ticket);
+        await yankMixed(targets, images, texts.length, ticket, quoteOf);
       } else if (images.length > 0) {
         await yankImages(images, ticket);
       } else if (texts.length > 0) {

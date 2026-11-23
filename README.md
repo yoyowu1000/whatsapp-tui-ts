@@ -60,7 +60,7 @@ This is a TypeScript rewrite of the original [Rust whatsapp-tui](https://github.
 - `i/Esc` for INSERT/NORMAL modes
 - `gg/G` jump to top/bottom
 - `y` yank the selected message: text goes through OSC 52 (works through tmux); an image or sticker goes onto the macOS clipboard as the picture itself
-- `v` starts a VISUAL selection: `j/k` extend it, `v`/`Esc` cancels, and `y` copies it. Only images: each image as a file (Finder, Slack and Mail attach them all). Images and text: one document in chat order with sender names, so Notes, Mail and browser editors paste text and pictures in place, a terminal gets the text with each image as its file path, and Claude Code turns those paths into image attachments. Only text: the messages' text
+- `v` starts a VISUAL selection: `j/k` extend it, `v`/`Esc` cancels, and `y` copies it. Only images without Quotes: each image as a file (Finder, Slack and Mail attach them all). Images and text: one document in chat order with sender names, so Notes, Mail and browser editors paste text and pictures in place, a terminal gets the text with each image as its file path, and Claude Code turns those paths into image attachments. Only text: the messages' text, including each Reply's Quote (author first, then `>`-prefixed text). Quotes are copied in full even when folded or capped on screen. Quoted media contributes its label and caption, not its file. An image Reply with a Quote copies as a mixed document to preserve that context
 
 **Mute**
 - `m` mutes or unmutes the highlighted chat (chat list) or the open chat (messages): 8 hours, 1 week, or Always
